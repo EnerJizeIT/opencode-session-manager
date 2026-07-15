@@ -32,55 +32,82 @@
 
 ### Пример структуры плагина (из документации opencode)
 
+Скелет для этого плагина — один файл, экспортирует функцию, возвращает хуки + `tool`:
+
 ```typescript
 import type { Plugin } from "@opencode-ai/plugin"
 import { tool } from "@opencode-ai/plugin"
 
-export const MyPlugin: Plugin = async ({ project, client, $, directory, worktree }) => {
+export const SessionManagerPlugin: Plugin = async ({ client, $ }) => {
+  // $ — Bun shell для вызова opencode CLI (см. след. раздел)
+  // client — opencode SDK для client.app.log({ body: {...} })
+
   return {
     tool: {
-      mytool: tool({
-        description: "Description of what this tool does",
-        args: {
-          foo: tool.schema.string(),
-        },
-        async execute(args, context) {
-          return `Result: ${args.foo}`
+      sm_pin: tool({
+        description: "Pin a session by id",
+        args: { sessionId: tool.schema.string() },
+        async execute(args, ctx) {
+          // реализация (см. TODO Фаза 1)
+          return `Pinned: ${args.sessionId}`
         },
       }),
+      // ... sm_unpin, sm_list, sm_search, sm_backup, sm_restore,
+      //     sm_full_backup, sm_cleanup, sm_cleanup_backups, sm_settings, sm_config
     },
-    "session.created": async (input, output) => {
-      // handle session creation
-    },
+
+    // Хуки подтверждены докой plugins (см. CLI-CAPABILITIES.md «События»)
     "session.deleted": async (input, output) => {
-      // handle session deletion
+      // убрать удалённую сессию из pinned-листа
     },
     "session.idle": async (input, output) => {
-      // handle session idle
+      // автоочистка + ротация бэкапов (если включены в настройках, с debounce 1ч)
     },
   }
 }
 ```
 
-### Работа с БД
+**Важно про UX:** `tool.*` — это custom tools, которые **вызывает сама модель**
+(пользователь пишет «запинть сессию X» → агент вызывает `sm_pin`). Это НЕ слеш-команды,
+которые пользователь набирает вручную. Если нужны именно слеш-команды — отдельная
+механика opencode Commands (вне scope MVP).
 
-Для запросов к БД использовать одну из стратегий:
+### Вызов opencode CLI из плагина
 
-**Стратегия A (рекомендуется):** Вызов `opencode db` через Bun shell:
+Единственный способ вызывать CLI изнутри плагина — **Bun shell `$`** из контекста плагина
+(НЕ `child_process.execSync`, НЕ `Bun.sql`):
+
 ```typescript
-const result = await $`opencode db "SELECT id, title FROM session LIMIT 5" --format json`
-const rows = JSON.parse(result.stdout.toString())
+export const SessionManagerPlugin: Plugin = async ({ $, client }) => {
+  // $ — это Bun shell: https://bun.com/docs/runtime/shell
+  const res = await $`opencode session list --format json`
+  const raw = res.stdout.toString()
+  const sessions = JSON.parse(raw)
+  return { tool: { /* ... */ } }
+}
 ```
 
-**Стратегия B:** Прямое подключение через Bun.sql:
-```typescript
-import { sql } from "bun"
-const dbPath = process.env.HOME + "/.local/share/opencode/opencode.db"
-const db = await sql.open(dbPath)
-const rows = await db.queryAll("SELECT id, title FROM session LIMIT 5")
-```
+### Доступ к БД opencode
 
-Если Bun.sql не доступен или вызывает ошибки — переключиться на Стратегию A.
+**Правило:** все операции с данными сессий идут через CLI (`opencode session list`,
+`opencode export`, `opencode import`, `opencode session delete`). Прямой SQL — только
+read-only (`opencode db "<SELECT>" --format json`) и **только** когда CLI не отдаёт
+нужное поле (например, `time_archived`). Write-операций (INSERT/UPDATE/DELETE) по SQL —
+никогда; удаление сессии делается через `opencode session delete <id>`.
+
+Сверяйся с `CLI-CAPABILITIES.md` — это источник истины по доступным командам.
+
+### ⚠️ Шум в stdout opencode
+
+На машине пользователя первая строка stdout содержит `[page-assist] CLI mode ...`.
+Поэтому JSON парсить «как есть» нельзя — нужно найти первый `{`/`[`:
+
+```typescript
+function parseJson(stdout: string): unknown {
+  const start = stdout.search(/[\[{]/)
+  return JSON.parse(start >= 0 ? stdout.slice(start) : stdout)
+}
+```
 
 ### Работа с файловой системой
 
@@ -96,7 +123,11 @@ import { join, homedir } from "path"
 - НЕ трогать встроенные команды opencode
 - Все данные плагина — во внешних файлах (`session-manager.json`, `backups/`)
 - Атомарная запись state: писать в `.tmp`, потом rename
-- Обработка ошибок: try/catch вокруг всех операций с ФС и БД
+- Обработка ошибок: try/catch вокруг всех операций с ФС и CLI
+- **Удаление сессий — только `opencode session delete`** (после бэкапа). Прямой write-SQL запрещён.
+- **Бэкапы ротируются осторожно**: удаляются только stale re-exportable
+  (сессия ещё жива в БД и не pinned). Pinned-бэкапы и orphaned-бэкапы
+  (сессии уже нет в БД) — защищены навсегда.
 - JSDoc для каждого tool
 
 ### Git

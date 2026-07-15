@@ -26,14 +26,15 @@ OpenCode хранит все сессии в единой SQLite-базе `~/.lo
 
 ### Что делает плагин
 
-Плагин добавляет кастомные команды в TUI opencode для управления сессиями:
+Плагин добавляет кастомные tools в opencode для управления сессиями:
 
 - **Pin / Unpin** — отметить сессию как избранную; pinned-сессии защищены от автоочистки
 - **Search** — поиск по заголовкам всех сессий с отметкой pinned
 - **Backup / Restore** — экспорт отдельных сессий в JSON и восстановление из них
 - **Full Backup** — создание полного архива (плагин + настройки + бэкапы сессий) для переноса на другую машину или восстановления после переустановки
-- **Auto-cleanup** — автоматическое удаление непinned сессий старше N дней неактивности
-- **Settings** — управление параметрами через команды или вручную в JSON-файле
+- **Auto-cleanup** — автоматический backup-then-delete непinned сессий старше N дней неактивности
+- **Backup retention** — ротация stale re-exportable бэкапов старше N дней (pinned- и orphaned-бэкапы защищены)
+- **Settings** — управление параметрами через tools или вручную в JSON-файле
 
 ### Ключевое свойство: самодостаточность
 
@@ -47,19 +48,58 @@ OpenCode хранит все сессии в единой SQLite-базе `~/.lo
 
 ---
 
+## Связанные плагины
+
+### opencode-mem
+
+[**opencode-mem**](https://github.com/tickernelz/opencode-mem) — плагин для персистентной памяти AI-агента между сессиями на основе локальной векторной БД (SQLite + USearch).
+
+**Что умеет:**
+- Сохранение и семантический поиск «воспоминаний» по проекту
+- Авто-захват контекста из сессий через AI (summarization)
+- User profile learning — запоминание предпочтений пользователя
+- Web UI на порту 4747 для просмотра/управления
+- Компактификация и дедупликация
+- Multi-provider (OpenAI, Anthropic, локальные эмбеддинги)
+
+**Как установить:**
+
+```jsonc
+// ~/.config/opencode/opencode.json
+{
+  "plugin": ["opencode-mem"]
+}
+```
+
+**Как они работают вместе:**
+
+| Session Manager | opencode-mem |
+| --- | --- |
+| Pin/unpin сессий | Семантический поиск по контексту |
+| Бэкап/восстановление сессий | Авто-захват ключевых решений из сессий |
+| Автоочистка старых сессий | Векторная БД с компактификацией |
+| Жизненный цикл сессий | Долгосрочная память агента |
+
+Session Manager защищает сессии от потери, opencode-mem извлекает из них знания для будущих сессий. Установленные вместе они покрывают полный жизненный цикл: создание → извлечение контекста → сохранение → восстановление.
+
+---
+
 ## Решение (абстрактно)
 
 Необходимо реализовать **плагин opencode** (`session-manager.ts`), который:
 
-1. Добавляет кастомные CLI-команды через TUI для управления сессиями: pin/unpin, экспорт, поиск, автоочистка.
+1. Добавляет кастомные tools (вызываются моделью) для управления сессиями: pin/unpin, экспорт, поиск, cleanup.
 2. Ведёт метаданные pinned-сессий во внешнем JSON-файле (не в БД opencode), чтобы пережить переустановку.
 3. Предоставляет механизм полного бэкапа (сессии + конфиг плагина) и восстановления из бэкапа.
-4. Реализует автоочистку непinned сессий старше N дней неактивности.
-5. Интегрируется с event-системой opencode для отслеживания создания, удаления и изменения сессий.
+4. Реализует автоочистку по схеме backup-then-delete непinned сессий старше N дней неактивности и ротацию устаревших бэкапов.
+5. Интегрируется с event-системой opencode (`session.deleted`, `session.idle`).
 
 ---
 
 ## Архитектура решения
+
+> Реальные возможности opencode CLI/SDK зафиксированы в **[`CLI-CAPABILITIES.md`](./CLI-CAPABILITIES.md)** —
+> источник истины. Спека сверяется с ним, а не наоборот.
 
 ### Хранение данных
 
@@ -75,8 +115,10 @@ OpenCode хранит все сессии в единой SQLite-базе `~/.lo
 {
   "version": "1.0.0",
   "settings": {
-    "autoCleanupDays": 30,
     "autoCleanupEnabled": false,
+    "autoCleanupDays": 30,
+    "backupRetentionEnabled": false,
+    "backupRetentionDays": 30,
     "backupDir": "~/.local/share/opencode/backups"
   },
   "pinned": [
@@ -86,35 +128,42 @@ OpenCode хранит все сессии в единой SQLite-базе `~/.lo
       "pinnedAt": 1783397000000,
       "note": "Описание, почему это важно"
     }
-  ]
+  ],
+  "lastAutoRun": null
 }
 ```
 
 ### Подписка на события
 
-Плагин использует hook-события opencode:
+Плагин использует hook-события opencode (подтверждено докой plugins — см. `CLI-CAPABILITIES.md`):
 
-- `session.created` — логирование, опциональный автобэкап
-- `session.deleted` — удаление из pinned-листа, если сессия была pinned
-- `session.idle` — триггер для проверки автоочистки
+- `session.deleted` — убрать удалённую сессию из pinned-листа
+- `session.idle` — автоочистка старых непinned сессий + ротация бэкапов (если включены в настройках, с debounce 1 ч)
 
-### Кастомные команды (TUI)
+### Кастомные tools
 
-Реализуются через plugin custom tools, доступные пользователю как `/sm-<action>`:
+Реализуются через plugin custom tools (`tool({ description, args, execute })`). Это **tools,
+которые вызывает сама модель** — пользователь пишет естественно («запинть сессию X»,
+«найди сессию про платёж», «почисти старые сессии») и агент вызывает нужный tool.
+Это **не** слеш-команды, набираемые вручную (для тех есть отдельная механика opencode Commands — вне MVP).
 
-| Команда | Описание |
-| --- | --- |
-| `/sm-pin <sessionId>` | Добавить сессию в избранное |
-| `/sm-unpin <sessionId>` | Убрать сессию из избранного |
-| `/sm-list` | Показать список pinned сессий |
-| `/sm-search <query>` | Fuzzy-поиск по заголовкам всех сессий |
-| `/sm-backup <sessionId>` | Экспорт одной сессии в JSON в backupDir |
-| `/sm-backup-all` | Экспорт всех pinned сессий |
-| `/sm-restore <file>` | Импорт сессии из JSON-файла |
-| `/sm-full-backup` | Полный архив: плагин + state + бэкапы pinned сессий |
-| `/sm-cleanup` | Запустить автоочистку вручную |
-| `/sm-settings` | Показать текущие настройки |
-| `/sm-config <key> <value>` | Изменить настройку (например, `autoCleanupDays 30`) |
+| Tool | Аргументы | Описание |
+| --- | --- | --- |
+| `sm_pin` | `sessionId`, `note?` | Добавить сессию в избранное |
+| `sm_unpin` | `sessionId` | Убрать сессию из избранного |
+| `sm_list` | — | Список pinned сессий (с пометкой удалённых `[DELETED]`) |
+| `sm_search` | `query` | Поиск по заголовкам всех сессий, с пометкой pinned |
+| `sm_backup` | `sessionId` | Экспорт одной сессии в `backups/<id>.json` |
+| `sm_backup_all` | — | Экспорт всех pinned сессий |
+| `sm_restore` | `filePath`, `force?` | Импорт сессии из JSON-файла (force — перезаписать существующую) |
+| `sm_full_backup` | — | Полный архив: плагин + state + бэкапы pinned сессий |
+| `sm_cleanup` | — | Бэкап + удаление (`opencode session delete`) старых непinned сессий |
+| `sm_cleanup_backups` | — | Ротация stale re-exportable бэкапов (pinned/orphaned защищены) |
+| `sm_settings` | — | Показать текущие настройки |
+| `sm_config` | `key`, `value` | Изменить настройку (`autoCleanupDays`, `backupRetentionEnabled`, ...) |
+
+> ⚠️ В opencode **нет** `opencode session archive`. Очистка работает по схеме **backup-then-delete**:
+> сначала `opencode export` → файл, затем `opencode session delete`. Подробнее в TODO Фаза 3.
 
 ---
 
@@ -195,3 +244,8 @@ OpenCode хранит все сессии в единой SQLite-базе `~/.lo
 - `time_created`, `time_updated` (INTEGER)
 
 Удаление `session` каскадно удаляет связанные `message` и `part`.
+
+> ⚠️ `opencode session list --format json` отдаёт поля `id, title, updated, created, projectId, directory`
+> (названия `created`/`updated`, а не `time_*`). Поле `time_archived` через CLI **недоступно** — только
+> через read-only `opencode db`. Поэтому cleanup опирается на `updated`, а не на `time_archived`.
+> См. `CLI-CAPABILITIES.md`.
