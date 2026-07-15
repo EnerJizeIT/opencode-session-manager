@@ -9,8 +9,9 @@
 
 import type { Plugin } from "@opencode-ai/plugin"
 import { tool } from "@opencode-ai/plugin"
-import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync } from "fs"
-import { join, homedir } from "path"
+import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync, readdirSync, copyFileSync, unlinkSync } from "fs"
+import { join, homedir, sep } from "path"
+import { tmpdir } from "os"
 
 // ---------------------------------------------------------------------------
 // 0.2 — State file
@@ -48,6 +49,14 @@ const DEFAULT_STATE: SMState = {
   },
   pinned: [],
   lastAutoRun: null,
+}
+
+/** Backup envelope wrapping a single session export. */
+interface BackupEnvelope {
+  version: string
+  exportedAt: number
+  backupOf: string
+  session: unknown
 }
 
 /**
@@ -187,6 +196,46 @@ async function deleteSession($: Plugin["$"], id: string): Promise<boolean> {
 }
 
 // ---------------------------------------------------------------------------
+// 2.0 — Backup helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Back up a single session to a JSON file in the given directory.
+ * Returns `{ ok, path, error }` result object.
+ */
+async function backupOne($: Plugin["$"], sessionId: string, targetDir = DEFAULT_BACKUP_DIR): Promise<{ ok: boolean; path?: string; error?: string }> {
+  try {
+    const session = await findSessionById($, sessionId)
+    if (!session) {
+      return { ok: false, error: `Session not found: ${sessionId}` }
+    }
+
+    const exportedRaw = await exportSession($, sessionId)
+    if (!exportedRaw.trim()) {
+      return { ok: false, error: `Backup failed: could not export ${sessionId}` }
+    }
+
+    const sessionData = parseJson(exportedRaw)
+    const envelope: BackupEnvelope = {
+      version: "1.0.0",
+      exportedAt: Date.now(),
+      backupOf: sessionId,
+      session: sessionData,
+    }
+
+    mkdirSync(targetDir, { recursive: true })
+    const filePath = join(targetDir, `${sessionId}.json`)
+    const tmpPath = filePath + ".tmp"
+    writeFileSync(tmpPath, JSON.stringify(envelope, null, 2), "utf-8")
+    renameSync(tmpPath, filePath)
+
+    return { ok: true, path: filePath }
+  } catch (err: any) {
+    return { ok: false, error: err?.message ?? "Unknown error during backup" }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // 0.5 — Formatting helpers
 // ---------------------------------------------------------------------------
 
@@ -313,6 +362,191 @@ export const SessionManagerPlugin: Plugin = async ({ client, $ }) => {
             "──────────────────────────────────────────────────",
             "Use: opencode -s <full_id> to continue a session",
           ].join("\n")
+        },
+      }),
+
+      // Back up a single session to a JSON file.
+      sm_backup: tool({
+        description: "Back up a single session by its ID to a JSON file in the backup directory.",
+        args: {
+          sessionId: tool.schema.string(),
+        },
+        async execute(args) {
+          const session = await findSessionById($, args.sessionId)
+          if (!session) return `Session not found: ${args.sessionId}`
+
+          const result = await backupOne($, args.sessionId)
+          if (!result.ok) return result.error ?? "Backup failed"
+
+          return `Backed up: ${session.title} -> ${result.path}`
+        },
+      }),
+
+      // Back up all pinned sessions.
+      sm_backup_all: tool({
+        description: "Back up all pinned sessions to JSON files in the backup directory.",
+        args: {},
+        async execute() {
+          const state = loadState()
+          if (state.pinned.length === 0) return "No pinned sessions to backup."
+
+          let backedUp = 0
+          const failures: string[] = []
+
+          for (const entry of state.pinned) {
+            const result = await backupOne($, entry.sessionId)
+            if (result.ok) {
+              backedUp++
+            } else {
+              failures.push(`  failed: ${entry.title} (${entry.sessionId}): ${result.error}`)
+            }
+          }
+
+          const lines = [`Backup complete: ${backedUp} backed up, ${failures.length} failed`]
+          lines.push(...failures)
+          return lines.join("\n")
+        },
+      }),
+
+      // Restore a session from a backup file.
+      sm_restore: tool({
+        description: "Restore a session from a backup JSON file. Use force=true to overwrite an existing session.",
+        args: {
+          filePath: tool.schema.string(),
+          force: tool.schema.boolean().optional(),
+        },
+        async execute(args) {
+          if (!existsSync(args.filePath)) {
+            return `Restore failed: file not found: ${args.filePath}`
+          }
+
+          let envelope: BackupEnvelope
+          try {
+            const raw = readFileSync(args.filePath, "utf-8")
+            envelope = JSON.parse(raw) as BackupEnvelope
+          } catch {
+            return "Restore failed: invalid backup envelope"
+          }
+
+          if (
+            typeof envelope.version !== "string" ||
+            !/^\d+\.\d+\.\d+$/.test(envelope.version) ||
+            typeof envelope.exportedAt !== "number" ||
+            typeof envelope.backupOf !== "string" ||
+            typeof envelope.session !== "object" ||
+            envelope.session === null
+          ) {
+            return "Restore failed: invalid backup envelope"
+          }
+
+          const sessionId = envelope.backupOf
+          const existing = await findSessionById($, sessionId)
+
+          if (existing) {
+            if (args.force !== true) {
+              return `Session already exists: ${sessionId}. Re-run with force=true to overwrite (current one will be deleted first).`
+            }
+            await deleteSession($, sessionId)
+          }
+
+          try {
+            const tmpFile = join(tmpdir(), `sm-restore-${sessionId}-${Date.now()}.json`)
+            writeFileSync(tmpFile, JSON.stringify(envelope.session, null, 2), "utf-8")
+
+            const ok = await importSession($, tmpFile)
+            try {
+              unlinkSync(tmpFile)
+            } catch { /* best-effort cleanup */ }
+
+            if (!ok) {
+              return `Restore failed: import error for ${sessionId}`
+            }
+
+            const title =
+              (envelope.session as any)?.info?.title ?? sessionId
+            return `Restored: ${title} (${sessionId})`
+          } catch (err: any) {
+            return `Restore failed: ${err?.message ?? "unknown error"}`
+          }
+        },
+      }),
+
+      // Full backup: all pinned sessions + state + plugin + restore instructions.
+      sm_full_backup: tool({
+        description: "Create a full backup archive with all pinned sessions, state file, plugin, and restore instructions.",
+        args: {
+          targetDir: tool.schema.string().optional(),
+        },
+        async execute(args) {
+          const targetDir = args.targetDir ?? join(DEFAULT_BACKUP_DIR, `full-backup-${Date.now()}`)
+          mkdirSync(targetDir, { recursive: true })
+
+          const state = loadState()
+          let backedUp = 0
+          const failures: string[] = []
+
+          for (const entry of state.pinned) {
+            const result = await backupOne($, entry.sessionId, targetDir)
+            if (result.ok) {
+              backedUp++
+            } else {
+              failures.push(`  failed: ${entry.title} (${entry.sessionId}): ${result.error}`)
+            }
+          }
+
+          let hasState = false
+          if (existsSync(STATE_FILE)) {
+            try {
+              copyFileSync(STATE_FILE, join(targetDir, "session-manager.json"))
+              hasState = true
+            } catch { /* skip */ }
+          }
+
+          let hasPlugin = false
+          const pluginPath = join(homedir(), ".config", "opencode", "plugins", "session-manager.ts")
+          if (existsSync(pluginPath)) {
+            try {
+              copyFileSync(pluginPath, join(targetDir, "session-manager.ts"))
+              hasPlugin = true
+            } catch { /* skip */ }
+          }
+
+          const restoreMd = `# OpenCode Session Restore
+
+## Recovery after reinstall
+
+1. Install opencode normally
+2. Copy the plugin:
+   cp .${sep}session-manager.ts ~/.config/opencode/plugins/
+3. Copy the state:
+   cp .${sep}session-manager.json ~/.local/share/opencode/
+4. Start opencode — the plugin will load automatically
+5. Restore sessions one by one:
+   opencode run "sm-restore .${sep}ses_XXXXX.json"
+   Or use:
+   opencode import .${sep}ses_XXXXX.json
+6. Done. Your pinned sessions and settings are restored.
+
+## Configure auto-cleanup
+
+In TUI run:
+  /sm-config autoCleanupEnabled true
+  /sm-config autoCleanupDays 30
+
+Or edit ~/.local/share/opencode/session-manager.json manually.
+`
+          writeFileSync(join(targetDir, "RESTORE.md"), restoreMd, "utf-8")
+
+          const parts = [`${backedUp} sessions`]
+          if (hasState) parts.push("state")
+          if (hasPlugin) parts.push("plugin")
+          parts.push("RESTORE.md")
+
+          let summary = `Full backup created: ${targetDir} (${parts.join(", ")})`
+          if (failures.length > 0) {
+            summary += "\n" + failures.join("\n")
+          }
+          return summary
         },
       }),
     },
