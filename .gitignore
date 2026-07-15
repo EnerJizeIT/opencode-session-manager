@@ -1,2 +1,9 @@
 session-manager.json
 backups/
+
+# Agentic workflow runtime files
+.agentic/inbox/
+.agentic/outbox/
+.agentic/context/
+.agentic/logs/
+.agentic/reports/
