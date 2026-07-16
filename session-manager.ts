@@ -163,9 +163,16 @@ function saveState(state: SMState): boolean {
  * (e.g. `[page-assist] CLI mode …` lines).
  */
 function parseJson(stdout: string): unknown {
-  const start = stdout.search(/[\[{]/)
-  const slice = start >= 0 ? stdout.slice(start) : stdout
-  return JSON.parse(slice)
+  // Find the start of the real JSON, skipping leading noise lines like
+  // "[page-assist] CLI mode ...". A bare '[' is NOT enough: that noise line
+  // itself starts with '[', so /[\[{]/ would slice from it and JSON.parse
+  // would throw. Require either a JSON object '{' or an array '[' immediately
+  // followed by whitespace and '{'.
+  const m = stdout.match(/(?:\[\s*\{|\{)/)
+  if (!m || m.index === undefined) {
+    throw new Error("no JSON found in output")
+  }
+  return JSON.parse(stdout.slice(m.index))
 }
 
 /** Session info returned by `opencode session list --format json`. */
