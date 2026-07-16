@@ -72,8 +72,8 @@ Corrupt-файлы переименовываются в `.corrupt`.
 | `backup-schema.json` | JSON Schema backup envelope |
 | `USAGE.md` | Пользовательский гайд |
 | `README.md` | Dev-спека (API, CLI capabilities) |
-| `CLI-CAPABILITIES.md` | Поддерживаемые CLI-команды |
+| `docs/CLI-CAPABILITIES.md` | Поддерживаемые CLI-команды |
 
 ## Детали
 
-Для технической документации уровня разработки см. `README.md` и `CLI-CAPABILITIES.md`.
+Для технической документации уровня разработки см. `docs/ARCHITECTURE.md`, `docs/SPEC.md` и `docs/CLI-CAPABILITIES.md`.

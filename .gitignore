@@ -4,8 +4,4 @@ dist/
 node_modules/
 
 # Agentic workflow runtime files
-.agentic/inbox/
-.agentic/outbox/
-.agentic/context/
-.agentic/logs/
-.agentic/reports/
+.agentic/

@@ -13,7 +13,7 @@
 
 ## Архитектурное правило: CLI-first
 
-Все операции с данными сессий идут через публичные CLI-команды opencode (вызов через Bun shell `$` из контекста плагина), а не через прямой SQL. Это защитит от поломки при изменении схемы БД в будущих релизах. Полный список реальных команд — в `CLI-CAPABILITIES.md`.
+Все операции с данными сессий идут через публичные CLI-команды opencode (вызов через Bun shell `$` из контекста плагина), а не через прямой SQL. Это защитит от поломки при изменении схемы БД в будущих релизах. Полный список реальных команд — в `docs/CLI-CAPABILITIES.md`.
 
 | Задача | CLI-команда | Примечание |
 |--------|-------------|------------|
@@ -26,7 +26,7 @@
 | Read `time_archived` и др. | `opencode db "<SELECT>" --format json` | read-only fallback |
 | Архивирование | ❌ команды нет | используем backup-then-delete |
 
-> ⚠️ stdout opencode загрязнён строкой `[page-assist] CLI mode ...`. JSON парсить через `parseJson()` (искать первый `{`/`[`). См. AGENT-BRIEF.
+> ⚠️ stdout opencode загрязнён строкой `[page-assist] CLI mode ...`. JSON парсить через `parseJson()` (искать первый `{`/`[`). См. docs/ARCHITECTURE.md.
 
 ---
 
@@ -68,9 +68,9 @@
 
 - **Файл**: тот же `session-manager.ts`
 - **Способ вызова**: **Bun shell `$`** из контекста плагина (НЕ `child_process.execSync`).
-  `$` доступен как аргумент функции плагина. См. AGENT-BRIEF «Вызов opencode CLI».
+  `$` доступен как аргумент функции плагина. См. docs/ARCHITECTURE.md «Вызов opencode CLI».
 - **⚠️ Парсинг JSON толерантный**: stdout загрязнён строкой `[page-assist] CLI mode ...`.
-  Перед `JSON.parse` искать первый `{`/`[` (см. `parseJson()` в AGENT-BRIEF).
+  Перед `JSON.parse` искать первый `{`/`[` (см. `parseJson()` в docs/ARCHITECTURE.md).
 - **Что сделать:**
   - `parseJson(stdout: string): unknown` — обрезает префикс-шум, парсит JSON
   - `async listSessions(): Promise<SessionInfo[]>` — `$\`opencode session list --format json\`` → `parseJson` → массив. Поля: `{ id, title, updated, created, projectId, directory }`
@@ -84,7 +84,7 @@
 
 ### 0.4. ~~Проверка доступных CLI-команд opencode~~ ✅ ВЫПОЛНЕНО
 
-Результат зафиксирован в **`CLI-CAPABILITIES.md`** (источник истины). Ключевое:
+Результат зафиксирован в **`docs/CLI-CAPABILITIES.md`** (источник истины). Ключевое:
 - `opencode session list/delete` ✅; `archive` ❌ (не существует)
 - `opencode export`/`import` ✅
 - `opencode db "<sql>" --format json` ✅ (read-only)
@@ -321,7 +321,7 @@ Cleanup complete: N sessions backed up + deleted, M skipped (pinned), K failed
 
 ### 3.4. Автоматический триггер (session.idle)
 
-- **Хук `session.idle` существует** — подтверждено в `CLI-CAPABILITIES.md` (дока plugins).
+- **Хук `session.idle` существует** — подтверждено в `docs/CLI-CAPABILITIES.md` (дока plugins).
 - **Hook**: `"session.idle"`
 - **Логика** (общий debounce для cleanup + backup-retention):
   1. Прочитать `state.lastAutoRun` (ms). Если `Date.now() - lastAutoRun < 3600000` → выходим (debounce 1 ч)
