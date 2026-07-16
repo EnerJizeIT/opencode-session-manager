@@ -1,0 +1,29 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "OpenCode Session Manager Backup Envelope",
+  "description": "JSON Schema describing the backup envelope format used by the session-manager plugin.",
+  "type": "object",
+  "required": ["version", "exportedAt", "backupOf", "session"],
+  "additionalProperties": true,
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Backup envelope format version (semver)."
+    },
+    "exportedAt": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Unix timestamp in milliseconds when the backup was created."
+    },
+    "backupOf": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Session ID that this backup represents."
+    },
+    "session": {
+      "type": "object",
+      "description": "Raw session export data (opencode export output)."
+    }
+  }
+}

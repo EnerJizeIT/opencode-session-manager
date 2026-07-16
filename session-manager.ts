@@ -2,9 +2,15 @@
  * OpenCode Session Manager Plugin
  *
  * Pin sessions, backup, restore, auto-cleanup and search.
- * Phase 0: plugin skeleton + state management + CLI wrappers.
  *
  * @version 1.0.0
+ * @author opencode-session-manager
+ *
+ * Installation:
+ *   1. Copy this file to ~/.config/opencode/plugins/session-manager.ts
+ *   2. State file: ~/.local/share/opencode/session-manager.json
+ *   3. Backups:    ~/.local/share/opencode/backups/
+ *   4. Start opencode — the plugin loads automatically.
  */
 
 import type { Plugin } from "@opencode-ai/plugin"
@@ -75,8 +81,50 @@ interface RetentionReport {
 }
 
 /**
+ * Migrate raw state to the current SMState schema.
+ * Pure function: one input (`unknown`), one output (`SMState`), no side effects.
+ * Returns `DEFAULT_STATE` when `raw` is not a valid state object.
+ */
+function migrateState(raw: unknown): SMState {
+  if (
+    raw === null ||
+    typeof raw !== "object" ||
+    !("version" in raw) ||
+    typeof (raw as Record<string, unknown>).version !== "string"
+  ) {
+    return { ...DEFAULT_STATE }
+  }
+
+  const versioned = raw as Record<string, unknown>
+  const currentVersion = versioned.version as string
+
+  // Migration chain: apply steps if version is behind.
+  // Currently only "1.0.0" exists, so the chain is empty.
+  // future: 1.0.0 -> 1.1.0
+  // future: 1.1.0 -> 1.2.0
+  const migratedVersion = currentVersion
+
+  // Merge with DEFAULT_STATE to fill in missing fields from future schema additions.
+  const merged = {
+    ...DEFAULT_STATE,
+    ...versioned,
+    settings: {
+      ...DEFAULT_STATE.settings,
+      ...(typeof versioned.settings === "object" && versioned.settings !== null
+        ? versioned.settings
+        : {}),
+    },
+    version: migratedVersion,
+    pinned: Array.isArray(versioned.pinned) ? versioned.pinned : DEFAULT_STATE.pinned,
+  } as SMState
+
+  return merged
+}
+
+/**
  * Load plugin state from the JSON file.
  * Returns `DEFAULT_STATE` when the file is missing or contains invalid JSON.
+ * Uses `migrateState` to handle version upgrades and fill missing fields.
  */
 function loadState(): SMState {
   try {
@@ -84,8 +132,8 @@ function loadState(): SMState {
       return { ...DEFAULT_STATE }
     }
     const raw = readFileSync(STATE_FILE, "utf-8")
-    const parsed = JSON.parse(raw) as SMState
-    return parsed
+    const parsed = JSON.parse(raw)
+    return migrateState(parsed)
   } catch {
     return { ...DEFAULT_STATE }
   }
@@ -93,14 +141,16 @@ function loadState(): SMState {
 
 /**
  * Save plugin state atomically: write to a `.tmp` file, then rename.
+ * Returns `true` on success, `false` on failure.
  */
-function saveState(state: SMState): void {
+function saveState(state: SMState): boolean {
   try {
     const tmpPath = STATE_FILE + ".tmp"
     writeFileSync(tmpPath, JSON.stringify(state, null, 2), "utf-8")
     renameSync(tmpPath, STATE_FILE)
+    return true
   } catch {
-    // Graceful — state save failure is non-fatal for read operations.
+    return false
   }
 }
 
@@ -269,10 +319,6 @@ async function runCleanup($: Plugin["$"], force = false): Promise<CleanupReport>
   const sessions = await listSessions($)
   const pinnedIds = new Set(state.pinned.map((p) => p.sessionId))
 
-  const candidates = sessions.filter(
-    (s) => s.updated < cutoff && !pinnedIds.has(s.id),
-  )
-
   const deleted: string[] = []
   const skippedPinned: string[] = []
   const failed: string[] = []
@@ -391,6 +437,18 @@ function truncateId(id: string): string {
   return id.length > 12 ? id.slice(0, 12) + "..." : id
 }
 
+/**
+ * Check if backup files exist in DEFAULT_BACKUP_DIR.
+ */
+function hasBackupFiles(): boolean {
+  try {
+    const files = readdirSync(DEFAULT_BACKUP_DIR)
+    return files.some((f) => f.endsWith(".json"))
+  } catch {
+    return false
+  }
+}
+
 // ---------------------------------------------------------------------------
 // 0.1 — Plugin skeleton
 // ---------------------------------------------------------------------------
@@ -452,7 +510,13 @@ export const SessionManagerPlugin: Plugin = async ({ client, $ }) => {
         args: {},
         async execute() {
           const state = loadState()
-          if (state.pinned.length === 0) return "No pinned sessions."
+          if (state.pinned.length === 0) {
+            let msg = "No pinned sessions."
+            if (hasBackupFiles()) {
+              msg += `\nHint: session DB looks empty. Backups available in ${DEFAULT_BACKUP_DIR}; use sm_restore.`
+            }
+            return msg
+          }
 
           const rows: string[] = []
           for (const entry of state.pinned) {
@@ -482,7 +546,14 @@ export const SessionManagerPlugin: Plugin = async ({ client, $ }) => {
         },
         async execute(args) {
           const sessions = await searchSessions($, args.query)
-          if (sessions.length === 0) return `No sessions match: ${args.query}`
+          if (sessions.length === 0) {
+            let msg = `No sessions match: ${args.query}`
+            const allSessions = await listSessions($)
+            if (allSessions.length === 0 && hasBackupFiles()) {
+              msg += `\nHint: session DB looks empty. Backups available in ${DEFAULT_BACKUP_DIR}; use sm_restore.`
+            }
+            return msg
+          }
 
           const state = loadState()
           const pinnedIds = new Set(state.pinned.map((p) => p.sessionId))
@@ -571,6 +642,8 @@ export const SessionManagerPlugin: Plugin = async ({ client, $ }) => {
             return "Restore failed: invalid backup envelope"
           }
 
+          // Validation mirrors backup-schema.json (root of this repo).
+          // No ajv dependency — manual check kept lightweight.
           if (
             typeof envelope.version !== "string" ||
             !/^\d+\.\d+\.\d+$/.test(envelope.version) ||
