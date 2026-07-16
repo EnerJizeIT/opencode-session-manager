@@ -9,7 +9,7 @@ OPENCODE_CONFIG_DIR="${HOME}/.config/opencode"
 OPENCODE_CACHE_DIR="${HOME}/.cache/opencode"
 OPENCODE_JSON="$OPENCODE_CONFIG_DIR/opencode.json"
 OPENCODE_PKG_JSON="$OPENCODE_CONFIG_DIR/package.json"
-PLUGIN_NAME="opencode-session-manager"
+PLUGIN_NAME="@enerjizeit/opencode-session-manager"
 CACHE_PKG_DIR="$OPENCODE_CACHE_DIR/packages/${PLUGIN_NAME}@latest/node_modules/$PLUGIN_NAME"
 
 echo "=== OpenCode Session Manager Installer ==="

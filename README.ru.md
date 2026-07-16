@@ -24,6 +24,17 @@ git clone <repo> && cd opencode-session-manager && ./install.sh
 
 Скрипт соберёт npm-пакет и добавит его в `plugin[]` вашего `opencode.json`.
 Перезапустите opencode после установки.
+
+**Установка из npm:** добавьте scoped-пакет в `plugin[]` файла `~/.config/opencode/opencode.json`:
+
+```jsonc
+// ~/.config/opencode/opencode.json
+{
+  "plugin": ["@enerjizeit/opencode-session-manager"]
+}
+```
+
+Перезапустите opencode — плагин загрузится автоматически.
 Подробности по использованию — см. `USAGE.md`.
 
 ## Архитектура

@@ -15,19 +15,21 @@ An [OpenCode](https://opencode.ai) plugin for session management: pin, backup, r
 
 ## Installation
 
-```bash
-git clone <repo> && cd opencode-session-manager && ./install.sh
-```
-
-The script builds the npm package and adds it to `plugin[]` in your `opencode.json`. Restart opencode after installation.
-
-Alternatively, install from npm and add to your config:
+Add the scoped package to your `opencode.json` plugin array — opencode will install it from npm automatically:
 
 ```jsonc
 // ~/.config/opencode/opencode.json
 {
-  "plugin": ["opencode-session-manager"]
+  "plugin": ["@enerjizeit/opencode-session-manager"]
 }
+```
+
+Restart opencode after adding the plugin.
+
+**Local development:** clone the repo and run `install.sh` to build and install from source:
+
+```bash
+git clone <repo> && cd opencode-session-manager && ./install.sh
 ```
 
 ## Usage
