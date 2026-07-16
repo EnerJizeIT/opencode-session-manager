@@ -11,6 +11,7 @@
   },
   "scripts": {
     "build": "rm -rf dist && mkdir -p dist && bun build session-manager.ts --outfile dist/plugin.js --target node --format esm --external @opencode-ai/plugin",
+    "test": "bun test",
     "prepublishOnly": "bun run build"
   },
   "keywords": [

@@ -18,6 +18,7 @@ import { tool } from "@opencode-ai/plugin"
 import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync, readdirSync, copyFileSync, unlinkSync } from "fs"
 import { join, sep } from "path"
 import { homedir, tmpdir } from "os"
+import { SMState, DEFAULT_STATE, migrateState, parseJson, loadState as loadStateRaw, saveState as saveStateRaw } from "./src/state"
 
 // ---------------------------------------------------------------------------
 // 0.2 — State file
@@ -29,33 +30,11 @@ const STATE_FILE = join(homedir(), ".local", "share", "opencode", "session-manag
 /** Default directory for session backups. */
 const DEFAULT_BACKUP_DIR = join(homedir(), ".local", "share", "opencode", "backups")
 
-/** Plugin state shape. */
-interface SMState {
-  version: string
-  settings: {
-    autoCleanupEnabled: boolean
-    autoCleanupDays: number
-    backupRetentionEnabled: boolean
-    backupRetentionDays: number
-    backupDir: string
-  }
-  pinned: Array<{ sessionId: string; title: string; pinnedAt: number; note: string }>
-  lastAutoRun?: number | null
-}
+/** Load state from the default STATE_FILE path. */
+function loadState(): SMState { return loadStateRaw(STATE_FILE) }
 
-/** Default state returned when the file is missing or corrupted. */
-const DEFAULT_STATE: SMState = {
-  version: "1.0.0",
-  settings: {
-    autoCleanupEnabled: false,
-    autoCleanupDays: 30,
-    backupRetentionEnabled: false,
-    backupRetentionDays: 30,
-    backupDir: DEFAULT_BACKUP_DIR,
-  },
-  pinned: [],
-  lastAutoRun: null,
-}
+/** Save state to the default STATE_FILE path. */
+function saveState(state: SMState): boolean { return saveStateRaw(state, STATE_FILE) }
 
 /** Backup envelope wrapping a single session export. */
 interface BackupEnvelope {
@@ -80,100 +59,13 @@ interface RetentionReport {
   corrupt: string[]
 }
 
-/**
- * Migrate raw state to the current SMState schema.
- * Pure function: one input (`unknown`), one output (`SMState`), no side effects.
- * Returns `DEFAULT_STATE` when `raw` is not a valid state object.
- */
-function migrateState(raw: unknown): SMState {
-  if (
-    raw === null ||
-    typeof raw !== "object" ||
-    !("version" in raw) ||
-    typeof (raw as Record<string, unknown>).version !== "string"
-  ) {
-    return { ...DEFAULT_STATE }
-  }
-
-  const versioned = raw as Record<string, unknown>
-  const currentVersion = versioned.version as string
-
-  // Migration chain: apply steps if version is behind.
-  // Currently only "1.0.0" exists, so the chain is empty.
-  // future: 1.0.0 -> 1.1.0
-  // future: 1.1.0 -> 1.2.0
-  const migratedVersion = currentVersion
-
-  // Merge with DEFAULT_STATE to fill in missing fields from future schema additions.
-  const merged = {
-    ...DEFAULT_STATE,
-    ...versioned,
-    settings: {
-      ...DEFAULT_STATE.settings,
-      ...(typeof versioned.settings === "object" && versioned.settings !== null
-        ? versioned.settings
-        : {}),
-    },
-    version: migratedVersion,
-    pinned: Array.isArray(versioned.pinned) ? versioned.pinned : DEFAULT_STATE.pinned,
-  } as SMState
-
-  return merged
-}
-
-/**
- * Load plugin state from the JSON file.
- * Returns `DEFAULT_STATE` when the file is missing or contains invalid JSON.
- * Uses `migrateState` to handle version upgrades and fill missing fields.
- */
-function loadState(): SMState {
-  try {
-    if (!existsSync(STATE_FILE)) {
-      return { ...DEFAULT_STATE }
-    }
-    const raw = readFileSync(STATE_FILE, "utf-8")
-    const parsed = JSON.parse(raw)
-    return migrateState(parsed)
-  } catch {
-    return { ...DEFAULT_STATE }
-  }
-}
-
-/**
- * Save plugin state atomically: write to a `.tmp` file, then rename.
- * Returns `true` on success, `false` on failure.
- */
-function saveState(state: SMState): boolean {
-  try {
-    const tmpPath = STATE_FILE + ".tmp"
-    writeFileSync(tmpPath, JSON.stringify(state, null, 2), "utf-8")
-    renameSync(tmpPath, STATE_FILE)
-    return true
-  } catch {
-    return false
-  }
-}
+/* migrateState, loadState, saveState — imported from ./src/state */
 
 // ---------------------------------------------------------------------------
 // 0.3 — CLI wrappers
 // ---------------------------------------------------------------------------
 
-/**
- * Parse JSON from opencode CLI stdout, stripping any prefix noise
- * (e.g. `[page-assist] CLI mode …` lines).
- */
-function parseJson(stdout: string): unknown {
-  // Find the start of the real JSON, skipping leading noise lines like
-  // "[page-assist] CLI mode ...". A bare '[' is NOT enough: that noise line
-  // itself starts with '[', so /[\[{]/ would slice from it and JSON.parse
-  // would throw. Require either a JSON object '{' or an array '[' immediately
-  // followed by whitespace and '{'.
-  const m = stdout.match(/(?:\[\s*\{|\{)/)
-  if (!m || m.index === undefined) {
-    throw new Error("no JSON found in output")
-  }
-  return JSON.parse(stdout.slice(m.index))
-}
+/* parseJson — imported from ./src/state */
 
 /** Session info returned by `opencode session list --format json`. */
 interface SessionInfo {
