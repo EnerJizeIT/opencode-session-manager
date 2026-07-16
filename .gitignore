@@ -5,3 +5,4 @@ node_modules/
 
 # Agentic workflow runtime files
 .agentic/
+.tmp-test*
