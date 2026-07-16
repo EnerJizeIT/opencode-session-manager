@@ -932,3 +932,5 @@ Or edit ~/.local/share/opencode/session-manager.json manually.
     },
   }
 }
+
+export default SessionManagerPlugin

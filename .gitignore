@@ -1,5 +1,7 @@
 session-manager.json
 backups/
+dist/
+node_modules/
 
 # Agentic workflow runtime files
 .agentic/inbox/

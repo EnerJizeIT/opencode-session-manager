@@ -147,20 +147,20 @@ Session Manager защищает сессии от потери, opencode-mem и
 «найди сессию про платёж», «почисти старые сессии») и агент вызывает нужный tool.
 Это **не** слеш-команды, набираемые вручную (для тех есть отдельная механика opencode Commands — вне MVP).
 
-| Tool | Аргументы | Описание |
-| --- | --- | --- |
-| `sm_pin` | `sessionId`, `note?` | Добавить сессию в избранное |
-| `sm_unpin` | `sessionId` | Убрать сессию из избранного |
-| `sm_list` | — | Список pinned сессий (с пометкой удалённых `[DELETED]`) |
-| `sm_search` | `query` | Поиск по заголовкам всех сессий, с пометкой pinned |
-| `sm_backup` | `sessionId` | Экспорт одной сессии в `backups/<id>.json` |
-| `sm_backup_all` | — | Экспорт всех pinned сессий |
-| `sm_restore` | `filePath`, `force?` | Импорт сессии из JSON-файла (force — перезаписать существующую) |
-| `sm_full_backup` | — | Полный архив: плагин + state + бэкапы pinned сессий |
-| `sm_cleanup` | — | Бэкап + удаление (`opencode session delete`) старых непinned сессий |
-| `sm_cleanup_backups` | — | Ротация stale re-exportable бэкапов (pinned/orphaned защищены) |
-| `sm_settings` | — | Показать текущие настройки |
-| `sm_config` | `key`, `value` | Изменить настройку (`autoCleanupDays`, `backupRetentionEnabled`, ...) |
+| Tool                 | Аргументы            | Описание                                                              |
+| -------------------- | -------------------- | --------------------------------------------------------------------- |
+| `sm_pin`             | `sessionId`, `note?` | Добавить сессию в избранное                                           |
+| `sm_unpin`           | `sessionId`          | Убрать сессию из избранного                                           |
+| `sm_list`            | —                    | Список pinned сессий (с пометкой удалённых `[DELETED]`)               |
+| `sm_search`          | `query`              | Поиск по заголовкам всех сессий, с пометкой pinned                    |
+| `sm_backup`          | `sessionId`          | Экспорт одной сессии в `backups/<id>.json`                            |
+| `sm_backup_all`      | —                    | Экспорт всех pinned сессий                                            |
+| `sm_restore`         | `filePath`, `force?` | Импорт сессии из JSON-файла (force — перезаписать существующую)       |
+| `sm_full_backup`     | —                    | Полный архив: плагин + state + бэкапы pinned сессий                   |
+| `sm_cleanup`         | —                    | Бэкап + удаление (`opencode session delete`) старых непinned сессий   |
+| `sm_cleanup_backups` | —                    | Ротация stale re-exportable бэкапов (pinned/orphaned защищены)        |
+| `sm_settings`        | —                    | Показать текущие настройки                                            |
+| `sm_config`          | `key`, `value`       | Изменить настройку (`autoCleanupDays`, `backupRetentionEnabled`, ...) |
 
 > ⚠️ В opencode **нет** `opencode session archive`. Очистка работает по схеме **backup-then-delete**:
 > сначала `opencode export` → файл, затем `opencode session delete`. Подробнее в TODO Фаза 3.

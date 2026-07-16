@@ -18,7 +18,12 @@
 
 ## Установка
 
-Скопируйте `session-manager.ts` в `~/.config/opencode/plugins/`. Плагин загрузится автоматически.
+```bash
+git clone <repo> && cd opencode-session-manager && ./install.sh
+```
+
+Скрипт соберёт npm-пакет и добавит его в `plugin[]` вашего `opencode.json`.
+Перезапустите opencode после установки.
 Подробности по использованию — см. `USAGE.md`.
 
 ## Архитектура

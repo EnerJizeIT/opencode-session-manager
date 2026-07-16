@@ -2,8 +2,13 @@
 
 ## Установка
 
-Скопируйте `session-manager.ts` в `~/.config/opencode/plugins/`.
-Плагин загружается автоматически при старте opencode.
+```bash
+git clone <repo> && cd opencode-session-manager && ./install.sh
+```
+
+Скрипт соберёт пакет, установит его и добавит в `plugin[]` вашего `opencode.json`.
+После установки перезапустите opencode — tools `sm_*` станут доступны агенту.
+
 Состояние хранится в `~/.local/share/opencode/session-manager.json`.
 Бэкапы сессий — в `~/.local/share/opencode/backups/`.
 
