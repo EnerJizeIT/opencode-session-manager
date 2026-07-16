@@ -36,21 +36,30 @@ echo ""
 # ---------------------------------------------------------------------------
 echo "[2/4] Installing package..."
 
-# Strategy: copy directly into opencode's cache directory
-# This mirrors how opencode resolves npm packages from the plugin array.
-# We copy dist + package.json AND node_modules so the runtime dependency
-# @opencode-ai/plugin (imported by dist/plugin.js) resolves locally — exactly
-# like opencode-mem ships its deps alongside the package.
+# Strategy: opencode resolves plugin-array packages from an isolated install at
+# ~/.cache/opencode/packages/<name>@latest/ — a wrapper package.json there declares
+# the dependency, and node_modules/<name>/ holds the actual package. We mirror that
+# layout exactly (verified against opencode-mem). Without the wrapper package.json,
+# opencode does not recognise/load the package.
+CACHE_PKG_ROOT="$OPENCODE_CACHE_DIR/packages/${PLUGIN_NAME}@latest"
+CACHE_PKG_DIR="$CACHE_PKG_ROOT/node_modules/$PLUGIN_NAME"
+
 mkdir -p "$CACHE_PKG_DIR"
 cp -r "$REPO_DIR/dist" "$CACHE_PKG_DIR/dist"
 cp "$REPO_DIR/package.json" "$CACHE_PKG_DIR/package.json"
 if [ -d "$REPO_DIR/node_modules" ]; then
   cp -r "$REPO_DIR/node_modules" "$CACHE_PKG_DIR/node_modules"
-  echo "  Package + dependencies installed to $CACHE_PKG_DIR"
-else
-  echo "  WARNING: node_modules missing — dist/plugin.js may fail to import @opencode-ai/plugin at runtime."
-  echo "  Package installed to $CACHE_PKG_DIR"
 fi
+# Wrapper package.json at the <name>@latest/ level (mirrors opencode-mem's layout).
+# file: dependency so it resolves locally without npm publishing.
+cat > "$CACHE_PKG_ROOT/package.json" <<JSON
+{
+  "dependencies": {
+    "$PLUGIN_NAME": "file:$REPO_DIR"
+  }
+}
+JSON
+echo "  Package + wrapper installed to $CACHE_PKG_ROOT"
 echo ""
 
 # ---------------------------------------------------------------------------
