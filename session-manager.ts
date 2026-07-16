@@ -16,8 +16,8 @@
 import type { Plugin } from "@opencode-ai/plugin"
 import { tool } from "@opencode-ai/plugin"
 import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync, readdirSync, copyFileSync, unlinkSync } from "fs"
-import { join, homedir, sep } from "path"
-import { tmpdir } from "os"
+import { join, sep } from "path"
+import { homedir, tmpdir } from "os"
 
 // ---------------------------------------------------------------------------
 // 0.2 — State file
