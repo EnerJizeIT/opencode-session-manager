@@ -29,8 +29,21 @@ Restart opencode after adding the plugin.
 **Local development:** clone the repo and run `install.sh` to build and install from source:
 
 ```bash
-git clone <repo> && cd opencode-session-manager && ./install.sh
+git clone https://github.com/EnerJizeIT/opencode-session-manager.git
+cd opencode-session-manager && ./install.sh
 ```
+
+## Upgrade
+
+opencode **does not auto-upgrade** installed plugins — it pins the version on first
+install. To update to a newer release:
+
+```bash
+rm -rf ~/.cache/opencode/packages/@enerjizeit/opencode-session-manager
+rm -rf ~/.cache/opencode/packages/@enerjizeit/opencode-session-manager@latest
+```
+Then restart opencode — it re-resolves `@latest` from npm and installs the new version.
+(Or pin an exact version in `plugin[]`, e.g. `"@enerjizeit/opencode-session-manager@1.0.2"`.)
 
 ## Usage
 

@@ -18,14 +18,7 @@
 
 ## Установка
 
-```bash
-git clone <repo> && cd opencode-session-manager && ./install.sh
-```
-
-Скрипт соберёт npm-пакет и добавит его в `plugin[]` вашего `opencode.json`.
-Перезапустите opencode после установки.
-
-**Установка из npm:** добавьте scoped-пакет в `plugin[]` файла `~/.config/opencode/opencode.json`:
+Добавьте scoped-пакет в массив `plugin` файла `~/.config/opencode/opencode.json` — opencode сам установит его из npm:
 
 ```jsonc
 // ~/.config/opencode/opencode.json
@@ -34,8 +27,25 @@ git clone <repo> && cd opencode-session-manager && ./install.sh
 }
 ```
 
-Перезапустите opencode — плагин загрузится автоматически.
-Подробности по использованию — см. `USAGE.md`.
+Перезапустите opencode — плагин загрузится автоматически. Подробности по использованию — см. `USAGE.md`.
+
+**Локальная разработка / установка из исходников** (clone + build):
+
+```bash
+git clone https://github.com/EnerJizeIT/opencode-session-manager.git
+cd opencode-session-manager && ./install.sh
+```
+
+## Обновление
+
+opencode **не обновляет плагины автоматически** — он пинит версию при первой установке.
+Чтобы обновиться до новой версии:
+
+```bash
+rm -rf ~/.cache/opencode/packages/@enerjizeit/opencode-session-manager
+rm -rf ~/.cache/opencode/packages/@enerjizeit/opencode-session-manager@latest
+```
+Затем перезапустите opencode — он переустановит `@latest` из npm. (Или пиньте точную версию в `plugin[]`, напр. `"@enerjizeit/opencode-session-manager@1.0.2"`.)
 
 ## Архитектура
 
@@ -81,8 +91,8 @@ Corrupt-файлы переименовываются в `.corrupt`.
 |---|---|
 | `session-manager.ts` | Плагин (12 tools, 2 hooks) |
 | `backup-schema.json` | JSON Schema backup envelope |
+| `README.md` | Английский README |
 | `USAGE.md` | Пользовательский гайд |
-| `README.md` | Dev-спека (API, CLI capabilities) |
 | `docs/CLI-CAPABILITIES.md` | Поддерживаемые CLI-команды |
 
 ## Детали

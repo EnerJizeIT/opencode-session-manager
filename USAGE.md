@@ -2,14 +2,7 @@
 
 ## Установка
 
-```bash
-git clone <repo> && cd opencode-session-manager && ./install.sh
-```
-
-Скрипт соберёт пакет, установит его и добавит в `plugin[]` вашего `opencode.json`.
-После установки перезапустите opencode — tools `sm_*` станут доступны агенту.
-
-**Установка из npm:** добавьте scoped-пакет в `plugin[]` файла `~/.config/opencode/opencode.json`:
+Добавьте scoped-пакет в массив `plugin` файла `~/.config/opencode/opencode.json` — opencode сам установит его из npm:
 
 ```jsonc
 // ~/.config/opencode/opencode.json
@@ -18,10 +11,17 @@ git clone <repo> && cd opencode-session-manager && ./install.sh
 }
 ```
 
-Перезапустите opencode — плагин загрузится автоматически.
+После установки перезапустите opencode — tools `sm_*` станут доступны агенту.
 
 Состояние хранится в `~/.local/share/opencode/session-manager.json`.
 Бэкапы сессий — в `~/.local/share/opencode/backups/`.
+
+**Из исходников** (локальная разработка):
+
+```bash
+git clone https://github.com/EnerJizeIT/opencode-session-manager.git
+cd opencode-session-manager && ./install.sh
+```
 
 ## Как это работает
 
