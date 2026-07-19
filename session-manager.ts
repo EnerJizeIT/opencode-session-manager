@@ -125,11 +125,18 @@ async function searchSessions($: Plugin["$"], query: string): Promise<SessionInf
  * Returns an empty string on failure.
  */
 async function exportSession($: Plugin["$"], id: string): Promise<string> {
+  // Stream the export to a temp file instead of capturing stdout into a string.
+  // Bun's pipe capture truncates at ~200 KB, which corrupts large sessions
+  // (the opencode export of a long session is multi-MB) -> "Unterminated string"
+  // in parseJson. Shell redirection (`>`) writes the full output to disk.
+  const tmp = `${tmpdir()}/sm-export-${id}-${Date.now()}.json`
   try {
-    const res = await $`opencode export ${id}`
-    return res.stdout.toString()
+    await $`opencode export ${id} > ${tmp}`
+    return readFileSync(tmp, "utf-8")
   } catch {
     return ""
+  } finally {
+    try { unlinkSync(tmp) } catch {}
   }
 }
 
