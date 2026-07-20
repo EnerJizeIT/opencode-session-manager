@@ -77,13 +77,8 @@ Session Manager protects sessions from loss; opencode-mem extracts knowledge fro
 
 ## Documentation
 
-| Document | Description |
-|---|---|
-| [README.ru.md](./README.ru.md) | Russian README |
-| [USAGE.md](./USAGE.md) | Usage scenarios and tool reference |
-| [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) | Architecture and design decisions |
-| [docs/SPEC.md](./docs/SPEC.md) | Development specification: phases, requirements |
-| [docs/CLI-CAPABILITIES.md](./docs/CLI-CAPABILITIES.md) | Verified opencode CLI capabilities |
+- [USAGE.md](./USAGE.md) — usage scenarios and tool reference
+- [README.ru.md](./README.ru.md) — Russian README
 
 ## License
 

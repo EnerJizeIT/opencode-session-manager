@@ -93,8 +93,7 @@ Corrupt-файлы переименовываются в `.corrupt`.
 | `backup-schema.json` | JSON Schema backup envelope |
 | `README.md` | Английский README |
 | `USAGE.md` | Пользовательский гайд |
-| `docs/CLI-CAPABILITIES.md` | Поддерживаемые CLI-команды |
 
 ## Детали
 
-Для технической документации уровня разработки см. `docs/ARCHITECTURE.md`, `docs/SPEC.md` и `docs/CLI-CAPABILITIES.md`.
+Архитектура кратко описана в разделе «Архитектура» выше; полный пользовательский гайд — `USAGE.md`.
