@@ -501,7 +501,11 @@ export const SessionManagerPlugin: Plugin = async ({ client, $ }) => {
           const result = await backupOne($, args.sessionId)
           if (!result.ok) return result.error ?? "Backup failed"
 
-          return `Backed up: ${session.title} -> ${result.path}`
+          return [
+            `Backed up: ${session.title}`,
+            `  file:   ${result.path}`,
+            `  restore: ask "restore session from ${result.path}"  (or: sm_restore ${result.path})`,
+          ].join("\n")
         },
       }),
 
@@ -589,7 +593,10 @@ export const SessionManagerPlugin: Plugin = async ({ client, $ }) => {
 
             const title =
               (envelope.session as any)?.info?.title ?? sessionId
-            return `Restored: ${title} (${sessionId})`
+            return [
+              `Restored: ${title} (${sessionId})`,
+              `  resume: opencode -s ${sessionId}`,
+            ].join("\n")
           } catch (err: any) {
             return `Restore failed: ${err?.message ?? "unknown error"}`
           }
