@@ -2,79 +2,89 @@
 
 [Русский](https://github.com/EnerJizeIT/opencode-session-manager/blob/master/USAGE.ru.md) · [README](https://github.com/EnerJizeIT/opencode-session-manager/blob/master/README.md)
 
-## How to use
+## What you get
 
-Write in natural language in the chat — the model invokes the right `sm_*` tool automatically. No slash commands.
+Keep the opencode sessions that matter — let the noise clean itself up.
 
-**Session ID** is needed for pin/backup/restore. Get it from:
-- terminal: `opencode session list`
-- or: "find session about X" → `sm_search` shows IDs in the table.
+- **Never lose** an important session: pin it, back it up, restore it any time.
+- **Auto-cleanup** of old sessions (backup-then-delete; pinned ones are always safe).
+- Works **through chat**: just say what you want — the agent calls the right tool. No commands to learn.
 
-## Scenarios
+## Is this for you?
 
-| You say | Tool | What happens |
-|---|---|---|
-| "pin session ses_abc123" | `sm_pin` | session is protected from auto-cleanup |
-| "unpin ses_abc123" | `sm_unpin` | removed from pinned |
-| "show pinned sessions" | `sm_list` | table + ready-to-copy `opencode -s <id>` to resume |
-| "find session about payment" | `sm_search` | matches by title; pinned marked `*` |
-| "back up ses_abc123" | `sm_backup` | file in `backups/` + how-to-restore hint |
-| "back up all pinned" | `sm_backup_all` | summary: N backed up, M failed |
-| "restore from backups/ses_xxx.json" | `sm_restore` | session imported; `force=true` to overwrite |
-| "full backup for migration" | `sm_full_backup` | archive: sessions + state + plugin + RESTORE.md |
-| "show settings" | `sm_settings` | autoCleanup, retention, backupDir, pinned count |
-| "enable auto-cleanup after 30 days" | `sm_config` | `autoCleanupEnabled=true` + `autoCleanupDays=30` |
-| "clean up old non-pinned" | `sm_cleanup` | backup-then-delete; pinned are skipped |
-| "rotate old backups" | `sm_cleanup_backups` | deletes stale; protects pinned and orphaned |
+Yes, if you have many opencode sessions and have ever lost a valuable conversation, couldn't find the right one, or wished old sessions would tidy themselves up.
 
-## Terminal commands
+## 30-second start
 
-The plugin manages sessions (pin/backup/restore data). To actually **open or resume** a session in opencode, use the terminal:
+You talk to the agent in plain language — it does the rest. Three things cover most of daily use:
 
-- `opencode session list` — list all sessions and their IDs (alternative to `sm_search`).
-- `opencode -s <session_id>` — resume a specific session. Use this after `sm_restore` (to open the restored session) or to switch to a pinned one. `sm_list` prints these commands ready to copy.
-- `opencode export <id> > file.json` — manual export (advanced; `sm_backup` wraps this).
+1. **Pin a session worth keeping** — "pin ses_abc123" → it's protected from cleanup.
+2. **See your pinned sessions** — "show pinned" → a list + a ready-to-copy `opencode -s <id>` line for each.
+3. **Go back to one** — copy that `opencode -s ses_…` line into your terminal.
 
-**Typical flow:** `sm_restore` (in chat) imports the session → run `opencode -s <id>` (terminal) to continue it.
+> **Where's the session ID?** Run `opencode session list` in the terminal, or say "find session about X".
 
-## Quick example: open a pinned session
+## Everyday
 
-1. In chat say: **"show pinned sessions"** → `sm_list` returns a table and a block of commands:
-   ```
-   Resume a pinned session (copy a line into your shell):
-     opencode -s ses_099136ce0ffeSVRXKPfZ2IKglc   # Анализ agentic-workflow
-   ```
-2. Copy the `opencode -s ses_…` line you need.
-3. Paste it into your terminal and press Enter — the session opens.
+| You say | What happens |
+|---|---|
+| "pin ses_abc123" | protected from cleanup |
+| "unpin ses_abc123" | removed from pinned |
+| "show pinned" | list + `opencode -s <id>` to resume each |
+| "find session about payments" | matches by title; pinned marked `*` |
 
-**Restore a deleted one:** "restore from backups/ses_xxx.json" (`sm_restore`) → the output includes `resume: opencode -s ses_xxx` — copy and run it in the terminal.
+## Safety: backup & restore
 
-## Quick example: terminal-only (no chat)
+| You say | What happens |
+|---|---|
+| "back up ses_abc123" | saved to `backups/` + how-to-restore hint |
+| "back up all pinned" | summary: N saved, M failed |
+| "restore from backups/ses_xxx.json" | imported; add `force=true` to overwrite |
+| "full backup for migration" | archive: sessions + state + plugin + RESTORE.md |
 
-List pinned sessions and restore — straight from the shell:
+**Typical use:** back up before a risky change; restore if a session is gone.
+
+## Maintenance (set and forget)
+
+| You say | What happens |
+|---|---|
+| "show settings" | autoCleanup, retention, backupDir, pinned count |
+| "enable auto-cleanup after 30 days" | old non-pinned sessions get backed up then deleted |
+| "rotate old backups" | deletes stale backups; pinned/orphaned always protected |
+
+Once enabled, the `session.idle` hook runs cleanup + retention hourly — no manual work.
+Settings keys: `autoCleanupEnabled`, `autoCleanupDays`, `backupRetentionEnabled`, `backupRetentionDays`, `backupDir`.
+
+## Terminal-only (no chat)
 
 ```bash
-# 1. Pinned sessions (ID + title):
+# Pinned sessions (ID + title):
 jq -r '.pinned[] | "\(.sessionId)  \(.title)"' ~/.local/share/opencode/session-manager.json
-
-# 2. Available backups:
+# Backups available:
 ls ~/.local/share/opencode/backups/
-
-# 3. Restore a session from a backup:
+# Restore from a backup, then open it:
 opencode import ~/.local/share/opencode/backups/ses_xxx.json
-
-# 4. Open the restored session:
 opencode -s ses_xxx
 ```
 
-## Settings (`sm_config`)
+Other handy shell commands: `opencode session list` (all sessions + IDs), `opencode -s <id>` (resume), `opencode export <id>` (manual export).
 
-Keys: `autoCleanupEnabled`, `autoCleanupDays`, `backupRetentionEnabled`, `backupRetentionDays`, `backupDir`.
-Example: "set autoCleanupDays to 14".
+## Where things live
 
-## Automation
+- State (pinned list + settings): `~/.local/share/opencode/session-manager.json`
+- Backups: `~/.local/share/opencode/backups/`
+- Stored outside opencode's DB → survives a reinstall.
 
-When `autoCleanup` / `backupRetention` are enabled, the `session.idle` hook (hourly) cleans up and rotates automatically.
-Pinned sessions and their backups are always protected; deletion only happens after a successful backup.
+## All tools (reference)
 
-**Storage:** state — `~/.local/share/opencode/session-manager.json`, backups — `~/.local/share/opencode/backups/`.
+| Tool | What it does |
+|---|---|
+| `sm_pin` / `sm_unpin` | protect / release a session |
+| `sm_list` | pinned sessions + resume commands |
+| `sm_search` | find sessions by title |
+| `sm_backup` / `sm_backup_all` | back up one / all pinned |
+| `sm_restore` | restore from a backup file |
+| `sm_full_backup` | full archive for migration |
+| `sm_settings` / `sm_config` | view / change settings |
+| `sm_cleanup` | back up + delete old non-pinned |
+| `sm_cleanup_backups` | rotate stale backups |
