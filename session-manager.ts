@@ -339,10 +339,6 @@ function formatDate(ms: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
 }
 
-function truncateId(id: string): string {
-  return id.length > 12 ? id.slice(0, 12) + "..." : id
-}
-
 /**
  * Check if backup files exist in DEFAULT_BACKUP_DIR.
  */
@@ -429,17 +425,17 @@ export const SessionManagerPlugin: Plugin = async ({ client, $ }) => {
             const alive = await findSessionById($, entry.sessionId)
             const titleStr = entry.title + (alive ? "" : " [DELETED]")
             rows.push(
-              `${truncateId(entry.sessionId).padEnd(16)}${titleStr.padEnd(32)}${formatDate(entry.pinnedAt).padEnd(16)}${entry.note}`,
+              `${entry.sessionId.padEnd(40)}${titleStr.padEnd(32)}${formatDate(entry.pinnedAt).padEnd(12)}${entry.note}`,
             )
           }
 
           return [
             `Pinned sessions (${state.pinned.length}):`,
-            "──────────────────────────────────────────────────",
-            `${"ID".padEnd(16)}${"Title".padEnd(32)}${"Pinned".padEnd(16)}Note`,
-            "──────────────────────────────────────────────────",
+            "──────────────────────────────────────────────────────────────────────────────",
+            `${"ID".padEnd(40)}${"Title".padEnd(32)}${"Pinned".padEnd(12)}Note`,
+            "──────────────────────────────────────────────────────────────────────────────",
             ...rows,
-            "──────────────────────────────────────────────────",
+            "──────────────────────────────────────────────────────────────────────────────",
           ].join("\n")
         },
       }),
@@ -469,17 +465,17 @@ export const SessionManagerPlugin: Plugin = async ({ client, $ }) => {
             const isPinned = pinnedIds.has(s.id)
             const prefix = isPinned ? "* " : "  "
             rows.push(
-              `${prefix}${truncateId(s.id).padEnd(16)}${s.title.padEnd(32)}${formatDate(s.updated).padEnd(16)}${isPinned ? "Yes" : "No"}`,
+              `${prefix}${s.id.padEnd(40)}${s.title.padEnd(32)}${formatDate(s.updated).padEnd(12)}${isPinned ? "Yes" : "No"}`,
             )
           }
 
           return [
             `Sessions matching "${args.query}" (${sessions.length}):`,
-            "──────────────────────────────────────────────────",
-            `${"ID".padEnd(16)}${"Title".padEnd(32)}${"Updated".padEnd(16)}Pinned`,
-            "──────────────────────────────────────────────────",
+            "──────────────────────────────────────────────────────────────────────────────",
+            `${"ID".padEnd(40)}${"Title".padEnd(32)}${"Updated".padEnd(12)}Pinned`,
+            "──────────────────────────────────────────────────────────────────────────────",
             ...rows,
-            "──────────────────────────────────────────────────",
+            "──────────────────────────────────────────────────────────────────────────────",
             "Use: opencode -s <full_id> to continue a session",
           ].join("\n")
         },
@@ -667,9 +663,9 @@ export const SessionManagerPlugin: Plugin = async ({ client, $ }) => {
           const lines = [
             `Cleanup complete: ${report.deleted.length} sessions backed up + deleted, ${report.skippedPinned.length} skipped (pinned), ${report.failed.length} failed`,
           ]
-          for (const id of report.deleted) lines.push(`  deleted: ${truncateId(id)}`)
-          for (const id of report.skippedPinned) lines.push(`  pinned: ${truncateId(id)}`)
-          for (const id of report.failed) lines.push(`  failed: ${truncateId(id)}`)
+          for (const id of report.deleted) lines.push(`  deleted: ${id}`)
+          for (const id of report.skippedPinned) lines.push(`  pinned: ${id}`)
+          for (const id of report.failed) lines.push(`  failed: ${id}`)
           return lines.join("\n")
         },
       }),
