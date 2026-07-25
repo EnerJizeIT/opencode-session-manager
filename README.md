@@ -54,7 +54,7 @@ rm -rf ~/.cache/opencode/packages/@enerjizeit/opencode-session-manager
 rm -rf ~/.cache/opencode/packages/@enerjizeit/opencode-session-manager@latest
 ```
 Then restart opencode — it re-resolves `@latest` from npm and installs the new version.
-(Or pin an exact version in `plugin[]`, e.g. `"@enerjizeit/opencode-session-manager@1.0.2"`.)
+(Or pin an exact version in `plugin[]`, e.g. `"@enerjizeit/opencode-session-manager@1.0.7"`.)
 
 ## Usage
 

@@ -55,7 +55,7 @@ opencode **не обновляет плагины автоматически** �
 rm -rf ~/.cache/opencode/packages/@enerjizeit/opencode-session-manager
 rm -rf ~/.cache/opencode/packages/@enerjizeit/opencode-session-manager@latest
 ```
-Затем перезапустите opencode — он переустановит `@latest` из npm. (Или пиньте точную версию в `plugin[]`, напр. `"@enerjizeit/opencode-session-manager@1.0.2"`.)
+Затем перезапустите opencode — он переустановит `@latest` из npm. (Или пиньте точную версию в `plugin[]`, напр. `"@enerjizeit/opencode-session-manager@1.0.7"`.)
 
 ## Архитектура
 
