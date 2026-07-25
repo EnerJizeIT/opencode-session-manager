@@ -27,7 +27,7 @@
 }
 ```
 
-Перезапустите opencode — плагин загрузится автоматически. Подробности по использованию — см. `USAGE.ru.md`.
+Перезапустите opencode — плагин загрузится автоматически. Подробности по использованию — см. [USAGE.ru.md](https://github.com/EnerJizeIT/opencode-session-manager/blob/master/USAGE.ru.md).
 
 **Локальная разработка / установка из исходников** (clone + build):
 
@@ -89,11 +89,11 @@ Corrupt-файлы переименовываются в `.corrupt`.
 
 | Файл | Описание |
 |---|---|
-| `session-manager.ts` | Плагин (12 tools, 2 hooks) |
-| `backup-schema.json` | JSON Schema backup envelope |
-| `README.md` | Английский README |
-| `USAGE.ru.md` | Пользовательский гайд (RU) |
+| [session-manager.ts](https://github.com/EnerJizeIT/opencode-session-manager/blob/master/session-manager.ts) | Плагин (12 tools, 2 hooks) |
+| [backup-schema.json](https://github.com/EnerJizeIT/opencode-session-manager/blob/master/backup-schema.json) | JSON Schema backup envelope |
+| [README.md](https://github.com/EnerJizeIT/opencode-session-manager/blob/master/README.md) | Английский README |
+| [USAGE.ru.md](https://github.com/EnerJizeIT/opencode-session-manager/blob/master/USAGE.ru.md) | Пользовательский гайд (RU) |
 
 ## Детали
 
-Архитектура кратко описана в разделе «Архитектура» выше; полный пользовательский гайд — `USAGE.ru.md` ([English](https://github.com/EnerJizeIT/opencode-session-manager/blob/master/USAGE.md)).
+Архитектура кратко описана в разделе «Архитектура» выше; полный пользовательский гайд — [USAGE.ru.md](https://github.com/EnerJizeIT/opencode-session-manager/blob/master/USAGE.ru.md) ([English](https://github.com/EnerJizeIT/opencode-session-manager/blob/master/USAGE.md)).

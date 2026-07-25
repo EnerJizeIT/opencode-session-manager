@@ -37,6 +37,18 @@ The plugin manages sessions (pin/backup/restore data). To actually **open or res
 
 **Typical flow:** `sm_restore` (in chat) imports the session → run `opencode -s <id>` (terminal) to continue it.
 
+## Quick example: open a pinned session
+
+1. In chat say: **"show pinned sessions"** → `sm_list` returns a table and a block of commands:
+   ```
+   Resume a pinned session (copy a line into your shell):
+     opencode -s ses_099136ce0ffeSVRXKPfZ2IKglc   # Анализ agentic-workflow
+   ```
+2. Copy the `opencode -s ses_…` line you need.
+3. Paste it into your terminal and press Enter — the session opens.
+
+**Restore a deleted one:** "restore from backups/ses_xxx.json" (`sm_restore`) → the output includes `resume: opencode -s ses_xxx` — copy and run it in the terminal.
+
 ## Settings (`sm_config`)
 
 Keys: `autoCleanupEnabled`, `autoCleanupDays`, `backupRetentionEnabled`, `backupRetentionDays`, `backupDir`.

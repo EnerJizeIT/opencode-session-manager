@@ -37,6 +37,18 @@
 
 **Типичный поток:** `sm_restore` (в чате) импортирует сессию → выполни `opencode -s <id>` (в терминале), чтобы её продолжить.
 
+## Быстрый пример: открыть закреплённую сессию
+
+1. В чате скажи: **«покажи закреплённые»** → `sm_list` выдаст таблицу и блок команд:
+   ```
+   Resume a pinned session (copy a line into your shell):
+     opencode -s ses_099136ce0ffeSVRXKPfZ2IKglc   # Анализ agentic-workflow
+   ```
+2. Скопируй нужную строку `opencode -s ses_…`.
+3. Вставь её в терминал и нажми Enter — сессия откроется.
+
+**Восстановить удалённую:** «восстанови из backups/ses_xxx.json» (`sm_restore`) → в выводе будет `resume: opencode -s ses_xxx` — скопируй и запусти в терминале.
+
 ## Настройки (`sm_config`)
 
 Ключи: `autoCleanupEnabled`, `autoCleanupDays`, `backupRetentionEnabled`, `backupRetentionDays`, `backupDir`.
