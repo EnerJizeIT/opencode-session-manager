@@ -1,63 +1,40 @@
 # USAGE — OpenCode Session Manager
 
-## Установка
+[Русский](./USAGE.ru.md) · [README](./README.md)
 
-Добавьте scoped-пакет в массив `plugin` файла `~/.config/opencode/opencode.json` — opencode сам установит его из npm:
+## How to use
 
-```jsonc
-// ~/.config/opencode/opencode.json
-{
-  "plugin": ["@enerjizeit/opencode-session-manager"]
-}
-```
+Write in natural language in the chat — the model invokes the right `sm_*` tool automatically. No slash commands.
 
-После установки перезапустите opencode — tools `sm_*` станут доступны агенту.
+**Session ID** is needed for pin/backup/restore. Get it from:
+- terminal: `opencode session list`
+- or: "find session about X" → `sm_search` shows IDs in the table.
 
-Состояние хранится в `~/.local/share/opencode/session-manager.json`.
-Бэкапы сессий — в `~/.local/share/opencode/backups/`.
+## Scenarios
 
-**Из исходников** (локальная разработка):
-
-```bash
-git clone https://github.com/EnerJizeIT/opencode-session-manager.git
-cd opencode-session-manager && ./install.sh
-```
-
-## Как это работает
-
-Пишете обычным языком в чат — модель вызывает нужный `sm_*` tool.
-Слеш-команды не нужны: модель сама определяет, какой инструмент использовать.
-
-## Сценарии
-
-| Вы говорите | Tool | Пример вывода |
+| You say | Tool | What happens |
 |---|---|---|
-| «запинь сессию ses_abc123» | `sm_pin` | `Pinned: My Session (ses_abc123...)` |
-| «открепи ses_abc123» | `sm_unpin` | `Unpinned: My Session` |
-| «покажи закреплённые» | `sm_list` | Таблица с ID, title, датой; удалённые помечены `[DELETED]` |
-| «найди сессию про платёж» | `sm_search` | Список совпадений; pinned помечены `*` |
-| «сделай бэкап сессии ses_abc123» | `sm_backup` | `Backed up: My Session -> ~/.local/share/.../ses_abc123.json` |
-| «забэкапь все закреплённые» | `sm_backup_all` | `Backup complete: 3 backed up, 0 failed` |
-| «восстанови из backups/ses_xxx.json» | `sm_restore` | `Restored: My Session (ses_xxx...)`; `force=true` для перезаписи |
-| «полный бэкап для переноса на другую машину» | `sm_full_backup` | Архив: сессии + state + плагин + RESTORE.md |
-| «покажи настройки» | `sm_settings` | Таблица: autoCleanup, retention, backupDir, pinned count |
-| «включи автоочистку, старше 30 дней» | `sm_config` | `sm_config autoCleanupEnabled true` + `sm_config autoCleanupDays 30` |
-| «почисти старые незакреплённые сессии» | `sm_cleanup` | Backup-then-delete; pinned пропускаются |
-| «ротация старых бэкапов» | `sm_cleanup_backups` | Удаляет старые; защищает pinned и orphaned |
+| "pin session ses_abc123" | `sm_pin` | session is protected from auto-cleanup |
+| "unpin ses_abc123" | `sm_unpin` | removed from pinned |
+| "show pinned sessions" | `sm_list` | table + ready-to-copy `opencode -s <id>` to resume |
+| "find session about payment" | `sm_search` | matches by title; pinned marked `*` |
+| "back up ses_abc123" | `sm_backup` | file in `backups/` + how-to-restore hint |
+| "back up all pinned" | `sm_backup_all` | summary: N backed up, M failed |
+| "restore from backups/ses_xxx.json" | `sm_restore` | session imported; `force=true` to overwrite |
+| "full backup for migration" | `sm_full_backup` | archive: sessions + state + plugin + RESTORE.md |
+| "show settings" | `sm_settings` | autoCleanup, retention, backupDir, pinned count |
+| "enable auto-cleanup after 30 days" | `sm_config` | `autoCleanupEnabled=true` + `autoCleanupDays=30` |
+| "clean up old non-pinned" | `sm_cleanup` | backup-then-delete; pinned are skipped |
+| "rotate old backups" | `sm_cleanup_backups` | deletes stale; protects pinned and orphaned |
 
-### Настройка через sm_config
+## Settings (`sm_config`)
 
-Доступные ключи: `autoCleanupEnabled`, `autoCleanupDays`, `backupRetentionEnabled`, `backupRetentionDays`, `backupDir`.
+Keys: `autoCleanupEnabled`, `autoCleanupDays`, `backupRetentionEnabled`, `backupRetentionDays`, `backupDir`.
+Example: "set autoCleanupDays to 14".
 
-```
-sm_config autoCleanupEnabled true
-sm_config autoCleanupDays 30
-sm_config backupRetentionEnabled true
-sm_config backupRetentionDays 30
-```
+## Automation
 
-## Автоматика
+When `autoCleanup` / `backupRetention` are enabled, the `session.idle` hook (hourly) cleans up and rotates automatically.
+Pinned sessions and their backups are always protected; deletion only happens after a successful backup.
 
-Хук `session.idle` (дебаунс 1 час) автоматически запускает cleanup и backup retention, если они включены в настройках.
-Хук `session.deleted` удаляет сессию из pinned-списка при ручном удалении.
-Хуки никогда не роняют opencode.
+**Storage:** state — `~/.local/share/opencode/session-manager.json`, backups — `~/.local/share/opencode/backups/`.

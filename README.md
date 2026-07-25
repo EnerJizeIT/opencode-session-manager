@@ -78,6 +78,7 @@ Session Manager protects sessions from loss; opencode-mem extracts knowledge fro
 ## Documentation
 
 - [USAGE.md](./USAGE.md) — usage scenarios and tool reference
+- [USAGE.ru.md](./USAGE.ru.md) — usage scenarios (Russian)
 - [README.ru.md](./README.ru.md) — Russian README
 
 ## License
