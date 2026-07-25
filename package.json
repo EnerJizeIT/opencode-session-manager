@@ -1,7 +1,7 @@
 {
   "name": "@enerjizeit/opencode-session-manager",
-  "version": "1.0.6",
-  "description": "OpenCode plugin: pin, backup, restore, auto-cleanup sessions — protects sessions across reinstalls.",
+  "version": "1.0.7",
+  "description": "Never lose an opencode AI conversation — pin, back up, restore & auto-cleanup sessions, via natural language.",
   "type": "module",
   "main": "dist/plugin.js",
   "exports": {
