@@ -1,20 +1,30 @@
-# OpenCode Session Manager — Russian README
+# OpenCode Session Manager
 
-## Что это
+[![npm version](https://img.shields.io/npm/v/@enerjizeit/opencode-session-manager?color=blue)](https://www.npmjs.com/package/@enerjizeit/opencode-session-manager)
+[![npm downloads](https://img.shields.io/npm/dm/@enerjizeit/opencode-session-manager)](https://www.npmjs.com/package/@enerjizeit/opencode-session-manager)
+[![license: MIT](https://img.shields.io/npm/l/@enerjizeit/opencode-session-manager?color=green)](https://github.com/EnerJizeIT/opencode-session-manager/blob/master/LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/EnerJizeIT/opencode-session-manager?style=social)](https://github.com/EnerJizeIT/opencode-session-manager)
 
-Плагин opencode для управления сессиями: pin, backup, restore, auto-cleanup, search.
-Работает через естественный язык — модель сама вызывает нужные tools.
+[English](https://github.com/EnerJizeIT/opencode-session-manager/blob/master/README.md)
+
+> **Закрепляй, бэкапь и восстанавливай opencode AI-сессии — больше никогда не потеряешь важный разговор.**
+
+> 🎬 **Демо скоро** — закрепление, бэкап и восстановление сессии через чат.
+
+## Какую проблему решает
+
+Терял важный AI-чат? Не можешь найти ту сессию недельной давности? Сессий накопилось столько, что не уследишь, что важно?
+
+**OpenCode Session Manager** — плагин, дающий AI-агенту слой памяти через управление сессиями. Пишешь обычным языком — *«запинть эту сессию»*, *«забэкапь те, что про платежи»*, *«почисти старые»* — и агент вызывает нужный tool. **Команды учить не надо.**
 
 ## Возможности
 
-- Pin/unpin сессий для защиты от автоочистки
-- Бэкап отдельных сессий и всех pinned
-- Восстановление из бэкапа (с force-перезаписью)
-- Полный бэкап для переноса на другую машину
-- Поиск сессий по подстроке в названии
-- Auto-cleanup старых непinned сессий (backup-then-delete)
-- Ротация старых бэкапов с защитой pinned и orphaned
-- Настройка через `sm_config` и просмотр через `sm_settings`
+- 📌 **Pin / unpin** — закрепляй важные сессии; закреплённые никогда не удаляются автоматически.
+- 💾 **Бэкап** — одна сессия или все закреплённые; переживает переустановку и перенос на другую машину.
+- ♻️ **Восстановление** — верни сессию из бэкапа одной фразой.
+- 🧹 **Автоочистка** — старые незакреплённые сессии бэкапятся и удаляются (закреплённые всегда защищены).
+- 🔍 **Поиск** — находи сессии по подстроке в названии.
+- ⚙️ **Настройка** — cleanup / retention; настроил и забыл.
 
 ## Установка
 
