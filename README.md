@@ -1,17 +1,28 @@
 # OpenCode Session Manager
 
-An [OpenCode](https://opencode.ai) plugin for session management: pin, backup, restore, auto-cleanup, and search. Works through natural language — the AI model calls the right tools automatically.
+[![npm version](https://img.shields.io/npm/v/@enerjizeit/opencode-session-manager?color=blue)](https://www.npmjs.com/package/@enerjizeit/opencode-session-manager)
+[![npm downloads](https://img.shields.io/npm/dm/@enerjizeit/opencode-session-manager)](https://www.npmjs.com/package/@enerjizeit/opencode-session-manager)
+[![license: MIT](https://img.shields.io/npm/l/@enerjizeit/opencode-session-manager?color=green)](https://github.com/EnerJizeIT/opencode-session-manager/blob/master/LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/EnerJizeIT/opencode-session-manager?style=social)](https://github.com/EnerJizeIT/opencode-session-manager)
+
+> **Pin, back up, and restore your opencode AI sessions — never lose a valuable conversation again.**
+
+> 🎬 **Demo screencast coming soon** — pinning, backing up, and restoring a session through chat.
+
+## The problem it solves
+
+Lost an important AI chat? Can't find that session from last week? Sessions piling up, and you can't keep track of what matters?
+
+**OpenCode Session Manager** gives your AI agent a memory layer through session management. You talk in plain language — *"pin this session"*, *"back up the ones about payments"*, *"clean up old sessions"* — and the agent calls the right tool. **No commands to learn.**
 
 ## Features
 
-- Pin/unpin sessions to protect them from auto-cleanup
-- Backup individual sessions and all pinned sessions
-- Restore sessions from backup (with force-overwrite)
-- Full backup archive for migration to another machine
-- Search sessions by substring in title
-- Auto-cleanup of old non-pinned sessions (backup-then-delete)
-- Backup rotation with pinned and orphaned protection
-- Configure via `sm_config` tool and inspect via `sm_settings`
+- 📌 **Pin / unpin** — protect the sessions that matter; pinned ones are never auto-deleted.
+- 💾 **Back up** — one session or all pinned; survives reinstalls and machine moves.
+- ♻️ **Restore** — bring a session back from a backup in one phrase.
+- 🧹 **Auto-cleanup** — old non-pinned sessions get backed up, then deleted (pinned always safe).
+- 🔍 **Search** — find sessions by title substring.
+- ⚙️ **Configure** — cleanup / retention settings; set once and forget.
 
 ## Installation
 

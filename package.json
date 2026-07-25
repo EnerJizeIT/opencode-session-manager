@@ -1,6 +1,6 @@
 {
   "name": "@enerjizeit/opencode-session-manager",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "OpenCode plugin: pin, backup, restore, auto-cleanup sessions — protects sessions across reinstalls.",
   "type": "module",
   "main": "dist/plugin.js",
@@ -17,9 +17,14 @@
   "keywords": [
     "opencode",
     "opencode-plugin",
+    "session-manager",
     "session",
     "backup",
+    "restore",
     "memory",
+    "ai-agent",
+    "persistence",
+    "chat-history",
     "agent"
   ],
   "author": "EnerJizeIT",
