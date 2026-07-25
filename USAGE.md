@@ -16,20 +16,20 @@ Yes, if you have many opencode sessions and have ever lost a valuable conversati
 
 ## 30-second start
 
-You talk to the agent in plain language — it does the rest. Three things cover most of daily use:
+You just tell the agent in plain language — it invokes the right tool and figures out which session you mean (the current one, from context, or by searching). Three things cover 90% of daily use:
 
-1. **Pin a session worth keeping** — "pin ses_abc123" → it's protected from cleanup.
+1. **Pin what's worth keeping** — "pin this session" → it's protected from cleanup.
 2. **See your pinned sessions** — "show pinned" → a list + a ready-to-copy `opencode -s <id>` line for each.
-3. **Go back to one** — copy that `opencode -s ses_…` line into your terminal.
+3. **Go back to one** — copy the `opencode -s ses_…` line from the list into your terminal.
 
-> **Where's the session ID?** Run `opencode session list` in the terminal, or say "find session about X".
+> **Need a specific older session?** Say "find session about X", or give its ID (get IDs with `opencode session list` in the terminal).
 
 ## Everyday
 
 | You say | What happens |
 |---|---|
-| "pin ses_abc123" | protected from cleanup |
-| "unpin ses_abc123" | removed from pinned |
+| "pin this session" | protected from cleanup |
+| "unpin it" / "unpin the ones about X" | removed from pinned |
 | "show pinned" | list + `opencode -s <id>` to resume each |
 | "find session about payments" | matches by title; pinned marked `*` |
 
@@ -37,9 +37,9 @@ You talk to the agent in plain language — it does the rest. Three things cover
 
 | You say | What happens |
 |---|---|
-| "back up ses_abc123" | saved to `backups/` + how-to-restore hint |
+| "back up this session" | saved to `backups/` + how-to-restore hint |
 | "back up all pinned" | summary: N saved, M failed |
-| "restore from backups/ses_xxx.json" | imported; add `force=true` to overwrite |
+| "restore a session from backup" / "restore yesterday's" | imported; add `force=true` to overwrite |
 | "full backup for migration" | archive: sessions + state + plugin + RESTORE.md |
 
 **Typical use:** back up before a risky change; restore if a session is gone.
