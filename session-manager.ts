@@ -429,6 +429,10 @@ export const SessionManagerPlugin: Plugin = async ({ client, $ }) => {
             )
           }
 
+          const resumeLines = state.pinned.map(
+            (e) => `  opencode -s ${e.sessionId}   # ${e.title}`,
+          )
+
           return [
             `Pinned sessions (${state.pinned.length}):`,
             "──────────────────────────────────────────────────────────────────────────────",
@@ -436,6 +440,9 @@ export const SessionManagerPlugin: Plugin = async ({ client, $ }) => {
             "──────────────────────────────────────────────────────────────────────────────",
             ...rows,
             "──────────────────────────────────────────────────────────────────────────────",
+            "",
+            "Resume a pinned session (copy a line into your shell):",
+            ...resumeLines,
           ].join("\n")
         },
       }),
