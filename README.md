@@ -51,7 +51,7 @@ Write in natural language in the chat — the model invokes the appropriate `sm_
 
 Example: "pin session ses_abc123", "find session about payment", "clean up old sessions".
 
-See [USAGE.md](./USAGE.md) for full scenario reference.
+See [USAGE.md](https://github.com/EnerJizeIT/opencode-session-manager/blob/master/USAGE.md) for full scenario reference.
 
 ## Architecture
 
@@ -77,10 +77,10 @@ Session Manager protects sessions from loss; opencode-mem extracts knowledge fro
 
 ## Documentation
 
-- [USAGE.md](./USAGE.md) — usage scenarios and tool reference
-- [USAGE.ru.md](./USAGE.ru.md) — usage scenarios (Russian)
-- [README.ru.md](./README.ru.md) — Russian README
+- [USAGE.md](https://github.com/EnerJizeIT/opencode-session-manager/blob/master/USAGE.md) — usage scenarios and tool reference
+- [USAGE.ru.md](https://github.com/EnerJizeIT/opencode-session-manager/blob/master/USAGE.ru.md) — usage scenarios (Russian)
+- [README.ru.md](https://github.com/EnerJizeIT/opencode-session-manager/blob/master/README.ru.md) — Russian README
 
 ## License
 
-MIT — see [LICENSE](./LICENSE).
+MIT — see [LICENSE](https://github.com/EnerJizeIT/opencode-session-manager/blob/master/LICENSE).

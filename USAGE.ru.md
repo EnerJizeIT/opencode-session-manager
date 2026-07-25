@@ -1,6 +1,6 @@
 # USAGE — OpenCode Session Manager
 
-[English](./USAGE.md) · [README](./README.ru.md)
+[English](https://github.com/EnerJizeIT/opencode-session-manager/blob/master/USAGE.md) · [README](https://github.com/EnerJizeIT/opencode-session-manager/blob/master/README.ru.md)
 
 ## Как пользоваться
 
@@ -26,6 +26,16 @@
 | «включи автоочистку через 30 дней» | `sm_config` | `autoCleanupEnabled=true` + `autoCleanupDays=30` |
 | «почисти старые незакреплённые» | `sm_cleanup` | backup-then-delete; pinned пропускаются |
 | «ротация старых бэкапов» | `sm_cleanup_backups` | удаляет старые; защищает pinned и orphaned |
+
+## Команды терминала
+
+Плагин управляет сессиями (pin/backup/restore данных). Чтобы реально **открыть или возобновить** сессию в opencode — используй терминал:
+
+- `opencode session list` — список всех сессий и их ID (альтернатива `sm_search`).
+- `opencode -s <session_id>` — возобновить конкретную сессию. Используй после `sm_restore` (чтобы открыть восстановленную) или чтобы переключиться на закреплённую. `sm_list` печатает эти команды готовыми к копированию.
+- `opencode export <id> > file.json` — ручной экспорт (продвинутое; `sm_backup` оборачивает это).
+
+**Типичный поток:** `sm_restore` (в чате) импортирует сессию → выполни `opencode -s <id>` (в терминале), чтобы её продолжить.
 
 ## Настройки (`sm_config`)
 

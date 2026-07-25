@@ -1,6 +1,6 @@
 # USAGE — OpenCode Session Manager
 
-[Русский](./USAGE.ru.md) · [README](./README.md)
+[Русский](https://github.com/EnerJizeIT/opencode-session-manager/blob/master/USAGE.ru.md) · [README](https://github.com/EnerJizeIT/opencode-session-manager/blob/master/README.md)
 
 ## How to use
 
@@ -26,6 +26,16 @@ Write in natural language in the chat — the model invokes the right `sm_*` too
 | "enable auto-cleanup after 30 days" | `sm_config` | `autoCleanupEnabled=true` + `autoCleanupDays=30` |
 | "clean up old non-pinned" | `sm_cleanup` | backup-then-delete; pinned are skipped |
 | "rotate old backups" | `sm_cleanup_backups` | deletes stale; protects pinned and orphaned |
+
+## Terminal commands
+
+The plugin manages sessions (pin/backup/restore data). To actually **open or resume** a session in opencode, use the terminal:
+
+- `opencode session list` — list all sessions and their IDs (alternative to `sm_search`).
+- `opencode -s <session_id>` — resume a specific session. Use this after `sm_restore` (to open the restored session) or to switch to a pinned one. `sm_list` prints these commands ready to copy.
+- `opencode export <id> > file.json` — manual export (advanced; `sm_backup` wraps this).
+
+**Typical flow:** `sm_restore` (in chat) imports the session → run `opencode -s <id>` (terminal) to continue it.
 
 ## Settings (`sm_config`)
 

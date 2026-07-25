@@ -96,4 +96,4 @@ Corrupt-файлы переименовываются в `.corrupt`.
 
 ## Детали
 
-Архитектура кратко описана в разделе «Архитектура» выше; полный пользовательский гайд — `USAGE.ru.md` ([English](./USAGE.md)).
+Архитектура кратко описана в разделе «Архитектура» выше; полный пользовательский гайд — `USAGE.ru.md` ([English](https://github.com/EnerJizeIT/opencode-session-manager/blob/master/USAGE.md)).
