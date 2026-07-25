@@ -49,6 +49,24 @@ The plugin manages sessions (pin/backup/restore data). To actually **open or res
 
 **Restore a deleted one:** "restore from backups/ses_xxx.json" (`sm_restore`) → the output includes `resume: opencode -s ses_xxx` — copy and run it in the terminal.
 
+## Quick example: terminal-only (no chat)
+
+List pinned sessions and restore — straight from the shell:
+
+```bash
+# 1. Pinned sessions (ID + title):
+jq -r '.pinned[] | "\(.sessionId)  \(.title)"' ~/.local/share/opencode/session-manager.json
+
+# 2. Available backups:
+ls ~/.local/share/opencode/backups/
+
+# 3. Restore a session from a backup:
+opencode import ~/.local/share/opencode/backups/ses_xxx.json
+
+# 4. Open the restored session:
+opencode -s ses_xxx
+```
+
 ## Settings (`sm_config`)
 
 Keys: `autoCleanupEnabled`, `autoCleanupDays`, `backupRetentionEnabled`, `backupRetentionDays`, `backupDir`.

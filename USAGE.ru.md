@@ -49,6 +49,24 @@
 
 **Восстановить удалённую:** «восстанови из backups/ses_xxx.json» (`sm_restore`) → в выводе будет `resume: opencode -s ses_xxx` — скопируй и запусти в терминале.
 
+## Быстрый пример: только терминал (без чата)
+
+Список закреплённых и восстановление — прямо из shell:
+
+```bash
+# 1. Закреплённые сессии (ID + title):
+jq -r '.pinned[] | "\(.sessionId)  \(.title)"' ~/.local/share/opencode/session-manager.json
+
+# 2. Доступные бэкапы:
+ls ~/.local/share/opencode/backups/
+
+# 3. Восстановить сессию из бэкапа:
+opencode import ~/.local/share/opencode/backups/ses_xxx.json
+
+# 4. Открыть восстановленную:
+opencode -s ses_xxx
+```
+
 ## Настройки (`sm_config`)
 
 Ключи: `autoCleanupEnabled`, `autoCleanupDays`, `backupRetentionEnabled`, `backupRetentionDays`, `backupDir`.
