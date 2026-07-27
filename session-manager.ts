@@ -3,7 +3,7 @@
  *
  * Pin sessions, backup, restore, auto-cleanup and search.
  *
- * @version 1.1.0
+ * @version 1.1.1
  * @author EnerJizeIT
  *
  * Installation (npm):
@@ -24,10 +24,13 @@
  *   - session-manager.ts (this file) — plugin entry: tool definitions + hooks
  */
 
-import type { Plugin } from "@opencode-ai/plugin"
+import type { Plugin, PluginInput } from "@opencode-ai/plugin"
 import { tool } from "@opencode-ai/plugin"
 import { join, sep } from "path"
 import { writeFileSync } from "fs"
+
+/** Bun shell context bound to the plugin runtime. */
+type Shell = PluginInput["$"]
 
 import {
   loadStateDefault, saveStateDefault, getBackupDir, logHookEvent,
@@ -42,6 +45,57 @@ import {
   restoreFromBackup, createFullBackup,
 } from "./src/backup"
 import { findPluginSourcePath, formatDate } from "./src/format"
+
+/** Debounce window for auto-maintenance triggered from tool.execute.before.
+ *  Replaces the non-working `session.idle` hook (1 hour, same intent). */
+const AUTO_MAINTENANCE_INTERVAL_MS = 3600000
+
+/**
+ * Periodic background maintenance: cleanup + retention + lastAutoRun update.
+ * Fire-and-forget — must never throw or block the calling tool.
+ *
+ * Replaces the dead `session.idle` hook (SDK 1.3.0 does not fire it).
+ * Triggered instead from `tool.execute.before` with a 1-hour debounce.
+ */
+async function runAutoMaintenance($: Shell): Promise<void> {
+  try {
+    const state = loadStateDefault()
+
+    let cleanupSummary = ""
+    if (state.settings.autoCleanupEnabled) {
+      try {
+        const report = await runCleanup($, false)
+        if (report.deleted.length || report.failed.length) {
+          cleanupSummary = `cleanup: ${report.deleted.length} deleted, ${report.failed.length} failed`
+        }
+      } catch (e: any) {
+        cleanupSummary = `cleanup error: ${e?.message ?? "unknown"}`
+      }
+    }
+
+    let retentionSummary = ""
+    if (state.settings.backupRetentionEnabled) {
+      try {
+        const report = await runBackupRetention($)
+        if (report.removed.length || report.corrupt.length) {
+          retentionSummary = `retention: ${report.removed.length} removed, ${report.corrupt.length} corrupt`
+        }
+      } catch (e: any) {
+        retentionSummary = `retention error: ${e?.message ?? "unknown"}`
+      }
+    }
+
+    // Update lastAutoRun on the freshest possible state.
+    const freshState = loadStateDefault()
+    freshState.lastAutoRun = Date.now()
+    saveStateDefault(freshState)
+
+    const parts = [cleanupSummary, retentionSummary].filter(Boolean)
+    logHookEvent("auto-maintenance", parts.length ? parts.join("; ") : "no-op")
+  } catch (e: any) {
+    logHookEvent("auto-maintenance", `error: ${e?.message ?? "unknown"}`)
+  }
+}
 
 export const SessionManagerPlugin: Plugin = async ({ client, $ }) => {
   // Tracks the session that is currently active in opencode, set by the
@@ -158,17 +212,34 @@ export const SessionManagerPlugin: Plugin = async ({ client, $ }) => {
               }
               return msg
             }
+
+            // Lazy check: detect pinned sessions whose IDs are no longer in
+            // the DB (replaces the non-working session.deleted hook).
+            const allSessions = await listSessions($)
+            const aliveIds = new Set(allSessions.map((s) => s.id))
+            const vanished = state.pinned.filter((p) => !aliveIds.has(p.sessionId))
+
             const rows: string[] = []
             for (const entry of state.pinned) {
-              const alive = await findSessionById($, entry.sessionId)
+              const alive = aliveIds.has(entry.sessionId)
               const titleStr = entry.title + (alive ? "" : " [DELETED]")
               rows.push(
                 `${entry.sessionId.padEnd(40)}${titleStr.padEnd(32)}${formatDate(entry.pinnedAt).padEnd(12)}${entry.note}`,
               )
             }
-            const resumeLines = state.pinned.map(
-              (e) => `  opencode -s ${e.sessionId}   # ${e.title}`,
-            )
+            const resumeLines = state.pinned
+              .filter((e) => aliveIds.has(e.sessionId))
+              .map((e) => `  opencode -s ${e.sessionId}   # ${e.title}`)
+
+            const vanishedWarning = vanished.length > 0
+              ? [
+                "",
+                `⚠️  ${vanished.length} pinned session${vanished.length === 1 ? "" : "s"} no longer exist in the DB:`,
+                ...vanished.map((v) => `    ${v.sessionId}  ${v.title}`),
+                `  Run sm_cleanup_pinned to remove ${vanished.length === 1 ? "it" : "them"} from the pinned list.`,
+              ].join("\n")
+              : ""
+
             return [
               `Pinned sessions (${state.pinned.length}):`,
               "──────────────────────────────────────────────────────────────────────────────",
@@ -179,7 +250,8 @@ export const SessionManagerPlugin: Plugin = async ({ client, $ }) => {
               "",
               "Resume a pinned session (copy a line into your shell):",
               ...resumeLines,
-            ].join("\n")
+              vanishedWarning,
+            ].filter(Boolean).join("\n")
           }
 
           // scope === "recent" | "all"
@@ -557,13 +629,43 @@ Or edit ~/.local/share/opencode/session-manager.json manually.
           return lines.join("\n")
         },
       }),
+
+      sm_cleanup_pinned: tool({
+        description: "Remove pinned entries whose sessions no longer exist in the DB. Use when sm_list shows [DELETED] entries. Replaces the non-working session.deleted hook.",
+        args: {},
+        async execute() {
+          const state = loadStateDefault()
+          if (state.pinned.length === 0) return "No pinned sessions."
+
+          const allSessions = await listSessions($)
+          const aliveIds = new Set(allSessions.map((s) => s.id))
+
+          const before = state.pinned.length
+          const dead = state.pinned.filter((p) => !aliveIds.has(p.sessionId))
+          state.pinned = state.pinned.filter((p) => aliveIds.has(p.sessionId))
+          const after = state.pinned.length
+
+          if (dead.length === 0) {
+            return `All ${before} pinned sessions still exist in the DB. Nothing to clean.`
+          }
+
+          saveStateDefault(state)
+          const lines = [
+            `Removed ${dead.length} dead pinned entr${dead.length === 1 ? "y" : "ies"} (${after} remain):`,
+            ...dead.map((d) => `  ${d.sessionId}  ${d.title}`),
+          ]
+          return lines.join("\n")
+        },
+      }),
     },
 
     // ───────────────────────────────────────────────────────────────────────
     // Hooks
     // ───────────────────────────────────────────────────────────────────────
 
-    // Tracks the active session for resolveSessionId() — set on every tool call.
+    // Tracks the active session for resolveSessionId() AND triggers periodic
+    // auto-maintenance (cleanup + retention) with a 1-hour debounce.
+    // Replaces the dead `session.idle` hook (SDK 1.3.0 does not fire it).
     "tool.execute.before": async (input: unknown, _output: unknown) => {
       try {
         if (input && typeof input === "object" && "sessionID" in input) {
@@ -573,74 +675,27 @@ Or edit ~/.local/share/opencode/session-manager.json manually.
           }
         }
       } catch { /* best-effort — never crash the hook */ }
-    },
 
-    // Remove deleted session from the pinned list.
-    "session.deleted": async (input: unknown, _output: unknown) => {
-      logHookEvent("session.deleted", typeof input === "string" ? `id=${input}` : "")
+      // Periodic maintenance — fire-and-forget, never blocks the tool call.
       try {
         const state = loadStateDefault()
-        let sessionId: string | null = null
-        if (typeof input === "string") {
-          sessionId = input
-        } else if (input && typeof input === "object" && "id" in input) {
-          sessionId = String((input as any).id)
+        const due = !state.lastAutoRun || Date.now() - state.lastAutoRun >= AUTO_MAINTENANCE_INTERVAL_MS
+        if (due && (state.settings.autoCleanupEnabled || state.settings.backupRetentionEnabled)) {
+          void runAutoMaintenance($)
         }
-        if (!sessionId) return
-        const idx = state.pinned.findIndex((p) => p.sessionId === sessionId)
-        if (idx !== -1) {
-          state.pinned.splice(idx, 1)
-          saveStateDefault(state)
-          logHookEvent("session.deleted", `unpinned id=${sessionId}`)
-        }
-      } catch {
-        // Never crash the hook
-      }
+      } catch { /* best-effort */ }
     },
 
-    // Auto-cleanup + backup retention (debounced 1 h).
-    "session.idle": async (_input: unknown, _output: unknown) => {
-      logHookEvent("session.idle")
-      try {
-        const state = loadStateDefault()
-        if (state.lastAutoRun && Date.now() - state.lastAutoRun < 3600000) {
-          logHookEvent("session.idle", "skipped (debounced)")
-          return
-        }
-
-        let cleanupSummary = ""
-        if (state.settings.autoCleanupEnabled) {
-          try {
-            const report = await runCleanup($, false)
-            cleanupSummary = `cleanup: ${report.deleted.length} deleted, ${report.failed.length} failed`
-          } catch (e: any) {
-            cleanupSummary = `cleanup error: ${e?.message ?? "unknown"}`
-          }
-        }
-
-        let retentionSummary = ""
-        if (state.settings.backupRetentionEnabled) {
-          try {
-            const report = await runBackupRetention($)
-            retentionSummary = `retention: ${report.removed.length} removed, ${report.corrupt.length} corrupt`
-          } catch (e: any) {
-            retentionSummary = `retention error: ${e?.message ?? "unknown"}`
-          }
-        }
-
-        state.lastAutoRun = Date.now()
-        saveStateDefault(state)
-
-        const parts = [cleanupSummary, retentionSummary].filter(Boolean)
-        if (parts.length > 0) {
-          try {
-            client.app.log({ body: { service: "session-manager", level: "info", message: parts.join("; ") } })
-          } catch { /* logging is best-effort */ }
-        }
-      } catch {
-        // Never crash the hook
-      }
-    },
+    // ───────────────────────────────────────────────────────────────────────
+    // Note on session.idle / session.deleted:
+    // These hooks are declared in the opencode docs but NOT fired by the
+    // current SDK (verified empirically — see session-manager-hooks.log
+    // stays empty after `opencode session delete`). Their responsibilities
+    // are covered by:
+    //   - tool.execute.before  → periodic cleanup/retention (1 h debounce)
+    //   - sm_list (scope=pinned) + sm_cleanup_pinned → lazy dead-pin removal
+    // If a future SDK release starts firing these hooks, the logic above
+    // is idempotent and safe to invoke twice.
   }
 }
 
