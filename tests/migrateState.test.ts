@@ -42,7 +42,7 @@ describe("migrateState", () => {
     expect(result.settings.autoCleanupDays).toBe(10)
     expect(result.settings.backupDir).toBe("/custom/path")
     expect(result.pinned).toHaveLength(1)
-    expect(result.pinned[0].sessionId).toBe("s1")
+    expect(result.pinned[0]?.sessionId).toBe("s1")
     expect(result.lastAutoRun).toBe(200)
   })
 

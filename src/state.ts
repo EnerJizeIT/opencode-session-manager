@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync, renameSync } from "fs"
+import { readFileSync, writeFileSync, existsSync, renameSync, mkdirSync, appendFileSync } from "fs"
 import { homedir } from "os"
 import { join } from "path"
 
@@ -20,7 +20,18 @@ export interface SMState {
   lastAutoRun?: number | null
 }
 
-const DEFAULT_BACKUP_DIR = join(homedir(), ".local", "share", "opencode", "backups")
+// ---------------------------------------------------------------------------
+// Paths (single source of truth)
+// ---------------------------------------------------------------------------
+
+/** Path to the plugin state file. */
+export const STATE_FILE = join(homedir(), ".local", "share", "opencode", "session-manager.json")
+
+/** Default directory for session backups. */
+export const DEFAULT_BACKUP_DIR = join(homedir(), ".local", "share", "opencode", "backups")
+
+/** Path to a diagnostic log file for hook invocation. */
+export const HOOKS_LOG_FILE = join(homedir(), ".local", "share", "opencode", "session-manager-hooks.log")
 
 /** Default state returned when the file is missing or corrupted. */
 export const DEFAULT_STATE: SMState = {
@@ -122,4 +133,38 @@ export function saveState(state: SMState, filePath: string): boolean {
   } catch {
     return false
   }
+}
+
+// ---------------------------------------------------------------------------
+// Default-path wrappers (used by the plugin runtime + helpers)
+// ---------------------------------------------------------------------------
+
+/** Load state from the default STATE_FILE path. */
+export function loadStateDefault(): SMState { return loadState(STATE_FILE) }
+
+/** Save state to the default STATE_FILE path. */
+export function saveStateDefault(state: SMState): boolean { return saveState(state, STATE_FILE) }
+
+/**
+ * Resolve the active backup directory: user-configured `settings.backupDir`
+ * if set and non-empty, otherwise `DEFAULT_BACKUP_DIR`. All backup/retention
+ * operations MUST go through this helper so the `backupDir` setting actually
+ * takes effect (previously hardcoded to DEFAULT_BACKUP_DIR — bug C2).
+ */
+export function getBackupDir(): string {
+  const dir = loadStateDefault().settings.backupDir
+  return dir && dir.trim() ? dir : DEFAULT_BACKUP_DIR
+}
+
+/**
+ * Append a single diagnostic line to HOOKS_LOG_FILE (best-effort).
+ * Used to verify whether opencode actually invokes session.idle /
+ * session.deleted hooks (see Q1 in the audit).
+ */
+export function logHookEvent(hook: string, detail = ""): void {
+  const line = `${new Date().toISOString()}  ${hook}${detail ? "  " + detail : ""}\n`
+  try {
+    mkdirSync(join(homedir(), ".local", "share", "opencode"), { recursive: true })
+    appendFileSync(HOOKS_LOG_FILE, line, "utf-8")
+  } catch { /* best-effort */ }
 }

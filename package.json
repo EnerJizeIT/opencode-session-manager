@@ -1,6 +1,6 @@
 {
   "name": "@enerjizeit/opencode-session-manager",
-  "version": "1.0.7",
+  "version": "1.1.0",
   "description": "Never lose an opencode AI conversation — pin, back up, restore & auto-cleanup sessions, via natural language.",
   "type": "module",
   "main": "dist/plugin.js",
@@ -12,7 +12,8 @@
   "scripts": {
     "build": "rm -rf dist && mkdir -p dist && bun build session-manager.ts --outfile dist/plugin.js --target node --format esm --external @opencode-ai/plugin",
     "test": "bun test",
-    "prepublishOnly": "bun run build"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "bun run typecheck && bun test && bun run build"
   },
   "keywords": [
     "opencode",

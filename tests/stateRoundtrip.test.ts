@@ -1,5 +1,5 @@
-import { describe, expect, it, beforeAll } from "bun:test"
-import { mkdirSync, writeFileSync, existsSync, unlinkSync, rmdirSync } from "fs"
+import { describe, expect, it, beforeAll, afterAll } from "bun:test"
+import { mkdirSync, writeFileSync, existsSync, unlinkSync, rmdirSync, rmSync } from "fs"
 import { join } from "path"
 import { loadState, saveState, DEFAULT_STATE, migrateState, type SMState } from "../src/state"
 
@@ -10,6 +10,13 @@ beforeAll(() => {
   tmpDir = join(import.meta.dir, "..", ".tmp-test-" + Date.now())
   mkdirSync(tmpDir, { recursive: true })
   tmpFile = join(tmpDir, "state.json")
+})
+
+afterAll(() => {
+  // Clean up the tmp directory so test runs don't leave artifacts behind.
+  try {
+    rmSync(tmpDir, { recursive: true, force: true })
+  } catch { /* best-effort */ }
 })
 
 describe("saveState / loadState — round-trip & robustness", () => {
@@ -37,7 +44,7 @@ describe("saveState / loadState — round-trip & robustness", () => {
     expect(loaded.settings.autoCleanupDays).toBe(7)
     expect(loaded.settings.backupDir).toBe("/test/dir")
     expect(loaded.pinned).toHaveLength(1)
-    expect(loaded.pinned[0].sessionId).toBe("abc")
+    expect(loaded.pinned[0]?.sessionId).toBe("abc")
   })
 
   it("atomic save leaves no .tmp file after success", () => {

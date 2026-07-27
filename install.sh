@@ -45,6 +45,9 @@ CACHE_PKG_ROOT="$OPENCODE_CACHE_DIR/packages/${PLUGIN_NAME}@latest"
 CACHE_PKG_DIR="$CACHE_PKG_ROOT/node_modules/$PLUGIN_NAME"
 
 mkdir -p "$CACHE_PKG_DIR"
+# Clean stale dist/ first — otherwise `cp -r` nests it as dist/dist/
+# on repeated installs, leaving opencode loading an outdated plugin.js.
+rm -rf "$CACHE_PKG_DIR/dist"
 cp -r "$REPO_DIR/dist" "$CACHE_PKG_DIR/dist"
 cp "$REPO_DIR/package.json" "$CACHE_PKG_DIR/package.json"
 if [ -d "$REPO_DIR/node_modules" ]; then

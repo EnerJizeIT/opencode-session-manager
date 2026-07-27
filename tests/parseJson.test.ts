@@ -16,7 +16,7 @@ describe("parseJson", () => {
     const stdout = "[page-assist] CLI mode … (serve mode only)\n[{\"id\":\"session-1\",\"title\":\"Test\"}]"
     const result = parseJson(stdout)
     expect(Array.isArray(result)).toBe(true)
-    expect(result[0]).toEqual({ id: "session-1", title: "Test" })
+    expect((result as unknown[])[0]).toEqual({ id: "session-1", title: "Test" })
   })
 
   it("handles [page-assist] noise prefix then JSON object", () => {
