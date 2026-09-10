@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync, renameSync, mkdirSync, appendFileSync } from "fs"
+import { readFileSync, writeFileSync, existsSync, renameSync, mkdirSync, appendFileSync, unlinkSync } from "fs"
 import { homedir } from "os"
 import { join } from "path"
 
@@ -15,6 +15,8 @@ export interface SMState {
     backupRetentionEnabled: boolean
     backupRetentionDays: number
     backupDir: string
+    /** Re-pin backups fresher than this many days during auto-maintenance (Pinned Guarantee). */
+    pinnedBackupRefreshDays: number
   }
   pinned: Array<{ sessionId: string; title: string; pinnedAt: number; note: string }>
   lastAutoRun?: number | null
@@ -33,6 +35,12 @@ export const DEFAULT_BACKUP_DIR = join(homedir(), ".local", "share", "opencode",
 /** Path to a diagnostic log file for hook invocation. */
 export const HOOKS_LOG_FILE = join(homedir(), ".local", "share", "opencode", "session-manager-hooks.log")
 
+/** Lock file guarding auto-maintenance against concurrent runs. */
+export const LOCK_FILE = join(homedir(), ".local", "share", "opencode", "session-manager.lock")
+
+/** A lock older than this is considered stale (crashed run) and gets replaced. */
+const LOCK_STALE_MS = 10 * 60000
+
 /** Default state returned when the file is missing or corrupted. */
 export const DEFAULT_STATE: SMState = {
   version: "1.0.0",
@@ -42,6 +50,7 @@ export const DEFAULT_STATE: SMState = {
     backupRetentionEnabled: false,
     backupRetentionDays: 30,
     backupDir: DEFAULT_BACKUP_DIR,
+    pinnedBackupRefreshDays: 7,
   },
   pinned: [],
   lastAutoRun: null,
@@ -167,4 +176,36 @@ export function logHookEvent(hook: string, detail = ""): void {
     mkdirSync(join(homedir(), ".local", "share", "opencode"), { recursive: true })
     appendFileSync(HOOKS_LOG_FILE, line, "utf-8")
   } catch { /* best-effort */ }
+}
+
+// ---------------------------------------------------------------------------
+// Auto-maintenance lock (prevents concurrent runs across tool calls /
+// opencode instances)
+// ---------------------------------------------------------------------------
+
+/**
+ * Try to acquire the auto-maintenance lock. Returns `true` when acquired.
+ * A stale lock (older than LOCK_STALE_MS — e.g. from a crashed process) is
+ * replaced. On any filesystem error, fails open (allows the run) — losing a
+ * maintenance tick is better than blocking cleanup forever.
+ */
+export function acquireMaintenanceLock(): boolean {
+  try {
+    if (existsSync(LOCK_FILE)) {
+      const raw = readFileSync(LOCK_FILE, "utf-8").trim()
+      const ts = Number(raw)
+      if (Number.isFinite(ts) && Date.now() - ts < LOCK_STALE_MS) {
+        return false // a fresh run is in progress
+      }
+    }
+    writeFileSync(LOCK_FILE, String(Date.now()), "utf-8")
+    return true
+  } catch {
+    return true
+  }
+}
+
+/** Release the auto-maintenance lock (best-effort). */
+export function releaseMaintenanceLock(): void {
+  try { unlinkSync(LOCK_FILE) } catch { /* best-effort */ }
 }

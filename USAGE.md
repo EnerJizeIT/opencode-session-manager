@@ -48,12 +48,22 @@ You just tell the agent in plain language — it invokes the right tool and figu
 
 | You say | What happens |
 |---|---|
-| "show settings" | autoCleanup, retention, backupDir, pinned count |
+| "show settings" / "status" | settings + session/backup counts at a glance |
 | "enable auto-cleanup after 30 days" | old non-pinned sessions get backed up then deleted |
 | "rotate old backups" | deletes stale backups; pinned/orphaned always protected |
 
-Once enabled, the `session.idle` hook runs cleanup + retention hourly — no manual work.
-Settings keys: `autoCleanupEnabled`, `autoCleanupDays`, `backupRetentionEnabled`, `backupRetentionDays`, `backupDir`.
+Once enabled, auto-maintenance runs **hourly** (triggered on the next plugin
+tool call, debounced 1 h) — no manual work. All CLI output is silenced;
+cleanup processes at most **50 sessions per run** (the rest waits for the
+next tick, so nothing hammers your terminal).
+
+**Pinned Guarantee:** pinned sessions are never deleted by cleanup, their
+backups are refreshed every `pinnedBackupRefreshDays` (default 7), and if a
+pinned session ever disappears from the DB it is **restored automatically**
+from its backup and logged to `session-manager-hooks.log`.
+
+Settings keys: `autoCleanupEnabled`, `autoCleanupDays`, `backupRetentionEnabled`,
+`backupRetentionDays`, `backupDir`, `pinnedBackupRefreshDays`.
 
 ## Terminal-only (no chat)
 
@@ -79,12 +89,15 @@ Other handy shell commands: `opencode session list` (all sessions + IDs), `openc
 
 | Tool | What it does |
 |---|---|
+| `sm_status` | one-call overview: counts, backups, candidates, last auto-run |
 | `sm_pin` / `sm_unpin` | protect / release a session |
 | `sm_list` | pinned sessions + resume commands |
-| `sm_search` | find sessions by title |
+| `sm_search` | find sessions by title (or title + note) |
 | `sm_backup` / `sm_backup_all` | back up one / all pinned |
 | `sm_restore` | restore from a backup file |
+| `sm_list_backups` | list available backup files |
 | `sm_full_backup` | full archive for migration |
 | `sm_settings` / `sm_config` | view / change settings |
-| `sm_cleanup` | back up + delete old non-pinned |
-| `sm_cleanup_backups` | rotate stale backups |
+| `sm_cleanup` | back up + delete old non-pinned (batch of 50, dry-run by default) |
+| `sm_cleanup_backups` | rotate stale backups (dry-run by default) |
+| `sm_cleanup_pinned` | drop pinned entries whose sessions no longer exist |

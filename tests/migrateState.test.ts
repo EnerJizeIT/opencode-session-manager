@@ -32,6 +32,7 @@ describe("migrateState", () => {
         backupRetentionEnabled: true,
         backupRetentionDays: 15,
         backupDir: "/custom/path",
+        pinnedBackupRefreshDays: 3,
       },
       pinned: [{ sessionId: "s1", title: "T", pinnedAt: 100, note: "n" }],
       lastAutoRun: 200,
@@ -80,5 +81,22 @@ describe("migrateState", () => {
     }
     const result = migrateState(input)
     expect(result.settings).toEqual(DEFAULT_STATE.settings)
+  })
+
+  it("fills new pinnedBackupRefreshDays field from DEFAULT (old state forward-compat)", () => {
+    const input = {
+      version: "1.0.0",
+      settings: {
+        autoCleanupEnabled: true,
+        autoCleanupDays: 14,
+        backupRetentionEnabled: false,
+        backupRetentionDays: 30,
+        backupDir: "/x",
+      },
+      pinned: [],
+    }
+    const result = migrateState(input)
+    expect(result.settings.pinnedBackupRefreshDays).toBe(DEFAULT_STATE.settings.pinnedBackupRefreshDays)
+    expect(result.settings.autoCleanupDays).toBe(14) // existing values preserved
   })
 })

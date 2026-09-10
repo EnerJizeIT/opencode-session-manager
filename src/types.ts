@@ -28,6 +28,8 @@ export interface CleanupReport {
   deleted: string[]
   skippedPinned: string[]
   failed: string[]
+  /** Sessions still past cutoff but not processed this run (batch limit hit). */
+  remaining: number
 }
 
 /** Report returned by the backup-retention routine. */

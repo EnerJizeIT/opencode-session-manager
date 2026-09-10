@@ -3,7 +3,7 @@
  *
  * Pin sessions, backup, restore, auto-cleanup and search.
  *
- * @version 1.1.1
+ * @version 1.2.0
  * @author EnerJizeIT
  *
  * Installation (npm):
@@ -34,6 +34,7 @@ type Shell = PluginInput["$"]
 
 import {
   loadStateDefault, saveStateDefault, getBackupDir, logHookEvent,
+  acquireMaintenanceLock, releaseMaintenanceLock,
   STATE_FILE, DEFAULT_BACKUP_DIR, type SMState,
 } from "./src/state"
 import {
@@ -42,7 +43,7 @@ import {
 } from "./src/cli"
 import {
   backupOne, runCleanup, runBackupRetention, hasBackupFiles, listBackups,
-  restoreFromBackup, createFullBackup,
+  restoreFromBackup, createFullBackup, ensurePinnedBackups, restoreMissingPinned,
 } from "./src/backup"
 import { findPluginSourcePath, formatDate } from "./src/format"
 
@@ -51,13 +52,20 @@ import { findPluginSourcePath, formatDate } from "./src/format"
 const AUTO_MAINTENANCE_INTERVAL_MS = 3600000
 
 /**
- * Periodic background maintenance: cleanup + retention + lastAutoRun update.
- * Fire-and-forget — must never throw or block the calling tool.
+ * Periodic background maintenance: cleanup + retention + Pinned Guarantee +
+ * lastAutoRun update. Fire-and-forget — must never throw or block the
+ * calling tool.
  *
  * Replaces the dead `session.idle` hook (SDK 1.3.0 does not fire it).
  * Triggered instead from `tool.execute.before` with a 1-hour debounce.
+ * Guarded by a lock file — concurrent runs (multiple tool calls / opencode
+ * instances) are skipped.
  */
 async function runAutoMaintenance($: Shell): Promise<void> {
+  if (!acquireMaintenanceLock()) {
+    logHookEvent("auto-maintenance", "skipped (lock held)")
+    return
+  }
   try {
     const state = loadStateDefault()
 
@@ -65,8 +73,8 @@ async function runAutoMaintenance($: Shell): Promise<void> {
     if (state.settings.autoCleanupEnabled) {
       try {
         const report = await runCleanup($, false)
-        if (report.deleted.length || report.failed.length) {
-          cleanupSummary = `cleanup: ${report.deleted.length} deleted, ${report.failed.length} failed`
+        if (report.deleted.length || report.failed.length || report.remaining) {
+          cleanupSummary = `cleanup: ${report.deleted.length} deleted, ${report.failed.length} failed${report.remaining ? `, ${report.remaining} remaining (next run)` : ""}`
         }
       } catch (e: any) {
         cleanupSummary = `cleanup error: ${e?.message ?? "unknown"}`
@@ -85,15 +93,36 @@ async function runAutoMaintenance($: Shell): Promise<void> {
       }
     }
 
+    // Pinned Guarantee: fresh backups for every pinned session…
+    let pinnedSummary = ""
+    if (state.pinned.length > 0) {
+      try {
+        const refresh = await ensurePinnedBackups($)
+        if (refresh.refreshed.length || refresh.failed.length) {
+          pinnedSummary = `pinned-backup: ${refresh.refreshed.length} refreshed, ${refresh.failed.length} failed`
+        }
+
+        // …and auto-restore of any pinned session that vanished from the DB.
+        const restore = await restoreMissingPinned($)
+        if (restore.restored.length || restore.missing.length) {
+          pinnedSummary += `${pinnedSummary ? "; " : ""}pinned-restore: ${restore.restored.length} restored, ${restore.missing.length} missing`
+        }
+      } catch (e: any) {
+        pinnedSummary = `pinned-guarantee error: ${e?.message ?? "unknown"}`
+      }
+    }
+
     // Update lastAutoRun on the freshest possible state.
     const freshState = loadStateDefault()
     freshState.lastAutoRun = Date.now()
     saveStateDefault(freshState)
 
-    const parts = [cleanupSummary, retentionSummary].filter(Boolean)
+    const parts = [cleanupSummary, retentionSummary, pinnedSummary].filter(Boolean)
     logHookEvent("auto-maintenance", parts.length ? parts.join("; ") : "no-op")
   } catch (e: any) {
     logHookEvent("auto-maintenance", `error: ${e?.message ?? "unknown"}`)
+  } finally {
+    releaseMaintenanceLock()
   }
 }
 
@@ -362,6 +391,49 @@ export const SessionManagerPlugin: Plugin = async ({ client, $ }) => {
         },
       }),
 
+      sm_status: tool({
+        description: "One-call overview: session counts, pinned status, backups, cleanup candidates, settings, last auto-run.",
+        args: {},
+        async execute() {
+          const state = loadStateDefault()
+          const sessions = await listSessions($)
+          const aliveIds = new Set(sessions.map((s) => s.id))
+          const pinnedIds = new Set(state.pinned.map((p) => p.sessionId))
+          const backups = listBackups()
+          const backupDir = getBackupDir()
+
+          const alivePinned = state.pinned.filter((p) => aliveIds.has(p.sessionId))
+          const deadPinned = state.pinned.filter((p) => !aliveIds.has(p.sessionId))
+          const cutoff = Date.now() - state.settings.autoCleanupDays * 86400000
+          const cleanupCandidates = sessions.filter(
+            (s) => !pinnedIds.has(s.id) && s.updated < cutoff,
+          )
+          const totalBackupBytes = backups.reduce((a, b) => a + b.size, 0)
+          const lastRun = state.lastAutoRun
+            ? `${formatDate(state.lastAutoRun)} (${new Date(state.lastAutoRun).toLocaleTimeString()})`
+            : "never"
+
+          const lines = [
+            "Session Manager Status:",
+            "──────────────────────────────────────────────",
+            `Sessions in DB:           ${sessions.length}`,
+            `Pinned:                   ${state.pinned.length} (${alivePinned.length} alive${deadPinned.length ? `, ${deadPinned.length} [DELETED]` : ""})`,
+            `Cleanup candidates:       ${cleanupCandidates.length} (stale > ${state.settings.autoCleanupDays}d, non-pinned)`,
+            `Backups:                  ${backups.length} files in ${backupDir}`,
+            `Backup size:              ${(totalBackupBytes / 1024).toFixed(1)} KB`,
+            `Last auto-run:            ${lastRun}`,
+            "──────────────────────────────────────────────",
+            `Auto-cleanup:             ${state.settings.autoCleanupEnabled ? "on" : "off"} (${state.settings.autoCleanupDays}d)`,
+            `Backup retention:         ${state.settings.backupRetentionEnabled ? "on" : "off"} (${state.settings.backupRetentionDays}d)`,
+            `Pinned backup refresh:    every ${state.settings.pinnedBackupRefreshDays}d`,
+          ]
+          if (deadPinned.length > 0) {
+            lines.push("", `⚠️  ${deadPinned.length} pinned session(s) vanished from DB. Pinned Guarantee will restore them from backups on the next auto-run, or run sm_cleanup_pinned to drop the entries.`)
+          }
+          return lines.join("\n")
+        },
+      }),
+
       // ─────────────────────────────────────────────────────────────────────
       // Backup & restore
       // ─────────────────────────────────────────────────────────────────────
@@ -530,6 +602,7 @@ Or edit ~/.local/share/opencode/session-manager.json manually.
             `Cleanup after (days):     ${state.settings.autoCleanupDays}`,
             `Backup retention enabled: ${state.settings.backupRetentionEnabled}`,
             `Backup retention (days):  ${state.settings.backupRetentionDays}`,
+            `Pinned backup refresh:    every ${state.settings.pinnedBackupRefreshDays} days (Pinned Guarantee)`,
             `Backup directory:         ${backupDirDisplay}`,
             `Pinned sessions:          ${state.pinned.length}`,
             "──────────────────────────────────────────────",
@@ -538,7 +611,7 @@ Or edit ~/.local/share/opencode/session-manager.json manually.
       }),
 
       sm_config: tool({
-        description: "Update a session-manager setting. Supported keys: autoCleanupEnabled, autoCleanupDays, backupRetentionEnabled, backupRetentionDays, backupDir.",
+        description: "Update a session-manager setting. Supported keys: autoCleanupEnabled, autoCleanupDays, backupRetentionEnabled, backupRetentionDays, backupDir, pinnedBackupRefreshDays.",
         args: {
           key: tool.schema.string(),
           value: tool.schema.string(),
@@ -550,6 +623,7 @@ Or edit ~/.local/share/opencode/session-manager.json manually.
             "backupRetentionEnabled",
             "backupRetentionDays",
             "backupDir",
+            "pinnedBackupRefreshDays",
           ]
           if (!allowedKeys.includes(args.key as any)) {
             return `Unknown setting: ${args.key}`
@@ -591,11 +665,14 @@ Or edit ~/.local/share/opencode/session-manager.json manually.
 
           const verb = dryRun ? "would delete" : "deleted"
           const lines = [
-            `Cleanup ${dryRun ? "(DRY RUN) " : ""}complete: ${report.deleted.length} sessions ${verb}, ${report.skippedPinned.length} skipped (pinned), ${report.failed.length} failed`,
+            `Cleanup ${dryRun ? "(DRY RUN) " : ""}complete: ${report.deleted.length} sessions ${verb}, ${report.skippedPinned.length} skipped (pinned), ${report.failed.length} failed${report.remaining ? `, ${report.remaining} remaining (next run)` : ""}`,
           ]
           for (const id of report.deleted) lines.push(`  ${dryRun ? "would delete" : "deleted"}: ${id}`)
           for (const id of report.skippedPinned) lines.push(`  pinned: ${id}`)
           for (const id of report.failed) lines.push(`  failed: ${id}`)
+          if (report.remaining > 0) {
+            lines.push(`  ℹ️  Batch limit reached: ${report.remaining} stale sessions remain — they will be processed on the next run.`)
+          }
           if (dryRun && report.deleted.length > 0) {
             lines.push("")
             lines.push("This was a dry run. Re-run with dry_run=false to actually delete.")

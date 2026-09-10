@@ -14,16 +14,23 @@ import {
 import { join, sep } from "path"
 import { homedir, tmpdir } from "os"
 import {
-  parseJson, loadStateDefault, saveStateDefault, getBackupDir,
+  parseJson, loadStateDefault, saveStateDefault, getBackupDir, logHookEvent,
   STATE_FILE, DEFAULT_BACKUP_DIR,
 } from "./state"
 import type {
   BackupEnvelope, CleanupReport, RetentionReport, BackupEntry, SessionInfo,
 } from "./types"
-import { findSessionById, listSessions, exportSession, importSession, deleteSession } from "./cli"
+import {
+  findSessionById, listSessions, exportSession, importSession, deleteSession,
+  invalidateSessionCache,
+} from "./cli"
 
 /** Bun shell context bound to the plugin runtime. */
 type Shell = PluginInput["$"]
+
+/** Max sessions processed per cleanup run — prevents minute-long subprocess
+ *  storms when the DB has hundreds of stale sessions (stability audit). */
+const MAX_CLEANUP_BATCH = 50
 
 /** Path to the local-dev plugin source (used by full_backup). */
 const LOCAL_PLUGIN_PATH = join(homedir(), ".config", "opencode", "plugins", "session-manager.ts")
@@ -84,7 +91,7 @@ export async function runCleanup(
 ): Promise<CleanupReport> {
   const state = loadStateDefault()
   if (!force && !state.settings.autoCleanupEnabled) {
-    return { deleted: [], skippedPinned: [], failed: [] }
+    return { deleted: [], skippedPinned: [], failed: [], remaining: 0 }
   }
 
   const cutoff = Date.now() - state.settings.autoCleanupDays * 86400000
@@ -92,18 +99,19 @@ export async function runCleanup(
   const pinnedIds = new Set(state.pinned.map((p) => p.sessionId))
 
   const deleted: string[] = []
-  const skippedPinned: string[] = []
+  const skippedPinned: string[] = sessions
+    .filter((s) => pinnedIds.has(s.id))
+    .map((s) => s.id)
   const failed: string[] = []
 
-  for (const s of sessions) {
-    if (pinnedIds.has(s.id)) {
-      skippedPinned.push(s.id)
-      continue
-    }
-    if (s.updated >= cutoff) {
-      continue
-    }
+  // Candidates only — batch limit applies to the processing loop below.
+  const candidates = sessions.filter(
+    (s) => !pinnedIds.has(s.id) && s.updated < cutoff,
+  )
+  const remaining = Math.max(0, candidates.length - MAX_CLEANUP_BATCH)
+  const batch = candidates.slice(0, MAX_CLEANUP_BATCH)
 
+  for (const s of batch) {
     if (dryRun) {
       deleted.push(s.id)
       continue
@@ -124,7 +132,7 @@ export async function runCleanup(
     deleted.push(s.id)
   }
 
-  return { deleted, skippedPinned, failed }
+  return { deleted, skippedPinned, failed, remaining }
 }
 
 /**
@@ -428,6 +436,98 @@ function findNpmPluginSource(): string | null {
     if (existsSync(c)) return c
   }
   return null
+}
+
+// ---------------------------------------------------------------------------
+// Pinned Guarantee — pinned sessions are always available
+// ---------------------------------------------------------------------------
+
+/**
+ * Refresh pinned-session backups: re-backup any pinned session whose backup
+ * file is missing or older than `settings.pinnedBackupRefreshDays`.
+ * Called from auto-maintenance. Ensures a restore point always exists for
+ * every pinned session.
+ */
+export async function ensurePinnedBackups(
+  $: Shell,
+): Promise<{ refreshed: string[]; current: string[]; failed: string[] }> {
+  const state = loadStateDefault()
+  const backupDir = getBackupDir()
+  const maxAgeMs = state.settings.pinnedBackupRefreshDays * 86400000
+  const now = Date.now()
+
+  const refreshed: string[] = []
+  const current: string[] = []
+  const failed: string[] = []
+
+  for (const p of state.pinned) {
+    const filePath = join(backupDir, `${p.sessionId}.json`)
+    let isFresh = false
+    try {
+      if (existsSync(filePath)) {
+        const envelope = JSON.parse(readFileSync(filePath, "utf-8")) as BackupEnvelope
+        isFresh = typeof envelope.exportedAt === "number" && now - envelope.exportedAt < maxAgeMs
+      }
+    } catch { /* treat as stale */ }
+
+    if (isFresh) {
+      current.push(p.sessionId)
+      continue
+    }
+
+    const res = await backupOne($, p.sessionId)
+    if (res.ok) {
+      refreshed.push(p.sessionId)
+    } else {
+      failed.push(p.sessionId)
+    }
+  }
+
+  return { refreshed, current, failed }
+}
+
+/**
+ * Auto-restore pinned sessions that vanished from the DB but have a backup.
+ * This is the "always available" half of Pinned Guarantee: if opencode loses
+ * a pinned session, it is restored from its backup automatically and the
+ * event is recorded in the hooks log. Sessions without a backup are reported
+ * as `missing` (nothing the plugin can do for those).
+ */
+export async function restoreMissingPinned(
+  $: Shell,
+): Promise<{ restored: string[]; missing: string[] }> {
+  const state = loadStateDefault()
+  const sessions = await listSessions($)
+  const aliveIds = new Set(sessions.map((s) => s.id))
+  const backupDir = getBackupDir()
+
+  const restored: string[] = []
+  const missing: string[] = []
+
+  for (const p of state.pinned) {
+    if (aliveIds.has(p.sessionId)) continue
+
+    const backupPath = join(backupDir, `${p.sessionId}.json`)
+    if (!existsSync(backupPath)) {
+      missing.push(p.sessionId)
+      logHookEvent("pinned-guarantee", `MISSING ${p.sessionId} (no backup)`)
+      continue
+    }
+
+    // force=false is safe: the session does not exist in the DB, so the
+    // "already exists" guard cannot trigger — the import proceeds directly.
+    const res = await restoreFromBackup($, backupPath, false)
+    invalidateSessionCache()
+    if (res.ok) {
+      restored.push(p.sessionId)
+      logHookEvent("pinned-guarantee", `restored ${p.sessionId} from backup`)
+    } else {
+      missing.push(p.sessionId)
+      logHookEvent("pinned-guarantee", `restore FAILED ${p.sessionId}: ${res.message.slice(0, 120)}`)
+    }
+  }
+
+  return { restored, missing }
 }
 
 /** re-exports for backwards compatibility with the old single-file layout. */

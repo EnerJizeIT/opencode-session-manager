@@ -29,6 +29,7 @@ describe("saveState / loadState — round-trip & robustness", () => {
         backupRetentionEnabled: false,
         backupRetentionDays: 30,
         backupDir: "/test/dir",
+        pinnedBackupRefreshDays: 7,
       },
       pinned: [
         { sessionId: "abc", title: "Test Session", pinnedAt: 1234567890, note: "test" },
