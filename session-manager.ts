@@ -3,7 +3,7 @@
  *
  * Pin sessions, backup, restore, auto-cleanup and search.
  *
- * @version 1.2.0
+ * @version 1.2.1
  * @author EnerJizeIT
  *
  * Installation (npm):
