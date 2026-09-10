@@ -1,30 +1,41 @@
 /**
  * Wrappers around the `opencode` CLI for session discovery and manipulation.
  *
- * Each wrapper takes the plugin's Bun shell context (`$`) and returns a
- * normalised type. Errors are swallowed and surfaced as empty results —
- * callers can distinguish "no sessions" from "CLI broken" via `findSessionByQuery`
- * which returns a typed error result.
+ * Each wrapper returns a normalised type. Errors are swallowed and surfaced
+ * as empty results — callers can distinguish "no sessions" from "CLI broken"
+ * via `findSessionByQuery`, which returns a typed error result.
  *
- * Noise control (stability audit): opencode CLI prints progress lines to
- * stderr ("Exporting session: …", ANSI-coloured "Session … deleted") and
- * noise to stdout ("[page-assist] CLI mode …"). Bun Shell captures stdout
- * but INHERITS stderr onto the parent terminal — visible as random artefacts
- * to the user. Every command therefore redirects `2>/dev/null`.
+ * Process invocation — node:child_process.execFile, NOT Bun Shell:
+ *   - Bun Shell inherits subprocess stdout/stderr onto the parent terminal,
+ *     so every background CLI call painted the user's terminal with the
+ *     session JSON (delete), progress lines ("Exporting session: …") and
+ *     "[page-assist] …" noise (verified experimentally).
+ *   - Bun Shell's parser rejects stacked redirects (`cmd > f 2>/dev/null` —
+ *     "expected a command or assignment but got: Redirect"), and .quiet()
+ *     support varies with the bundled Bun version inside opencode.
+ *   - execFile captures both streams by default (stdio: "pipe") — nothing
+ *     reaches the terminal, ever. maxBuffer is raised above the default 1 MB
+ *     so multi-MB session exports don't truncate (the reason a pipe-capture
+ *     fix was needed for Bun.spawn in v1.0.2).
  *
- * Performance: `opencode session list` costs ~2 s on a 1700+ session DB.
- * `listSessions` caches the result for 5 s; `deleteSession` / `importSession`
- * invalidate the cache so callers never see stale data after mutations.
+ * Performance: `opencode session list` costs ~2 s on a large DB.
+ * `listSessions` caches the result for 5 s; delete/import invalidate it.
  */
 
-import type { PluginInput } from "@opencode-ai/plugin"
-import { readFileSync, unlinkSync } from "fs"
-import { tmpdir } from "os"
+import { execFile as execFileCb } from "child_process"
+import { promisify } from "util"
 import { parseJson, loadStateDefault } from "./state"
 import type { SessionInfo, FindQueryResult } from "./types"
 
-/** Bun shell context bound to the plugin runtime. */
-type Shell = PluginInput["$"]
+const execFile = promisify(execFileCb)
+
+/** Session exports can be multi-MB; 64 MB leaves generous headroom. */
+const MAX_BUFFER = 64 * 1024 * 1024
+
+/** Kill a hanging CLI call after 2 minutes (network/hung TUI safety). */
+const CLI_TIMEOUT_MS = 120_000
+
+/** Bun shell context — kept in call-sites for API stability; unused here. */
 
 // ---------------------------------------------------------------------------
 // Session list cache (listSessions is the hottest call — ~2 s per invocation)
@@ -42,19 +53,26 @@ export function invalidateSessionCache(): void {
  * List all sessions via `opencode session list --format json`.
  * Cached for 5 seconds — repeated calls within the TTL return instantly.
  * Returns an empty array on failure.
+ *
+ * `-n 100000`: the CLI defaults to the 100 most recent sessions, which made
+ * the plugin blind to older (often pinned) sessions and mislabel them as
+ * deleted. A large limit asks for everything the CLI can see.
  */
-export async function listSessions($: Shell): Promise<SessionInfo[]> {
+export async function listSessions(_$: unknown): Promise<SessionInfo[]> {
   if (listCache && Date.now() - listCache.ts < LIST_CACHE_TTL_MS) {
     return listCache.sessions
   }
   try {
-    const res = await $`opencode session list --format json 2>/dev/null`
-    const stdout = res.stdout.toString()
+    const { stdout } = await execFile(
+      "opencode",
+      ["session", "list", "--format", "json", "-n", "100000"],
+      { maxBuffer: MAX_BUFFER, timeout: CLI_TIMEOUT_MS },
+    )
     const parsed = parseJson(stdout) as SessionInfo[]
     const sessions = Array.isArray(parsed) ? parsed : []
     listCache = { sessions, ts: Date.now() }
     return sessions
-  } catch {
+  } catch (err: any) {
     return []
   }
 }
@@ -68,9 +86,9 @@ export async function listSessions($: Shell): Promise<SessionInfo[]> {
  * Returns `null` when not found or on error. Use `findSessionByQuery` for
  * prefix-aware lookups in user-facing tools.
  */
-export async function findSessionById($: Shell, id: string): Promise<SessionInfo | null> {
+export async function findSessionById(_: unknown, id: string): Promise<SessionInfo | null> {
   try {
-    const sessions = await listSessions($)
+    const sessions = await listSessions(null)
     return sessions.find((s) => s.id === id) ?? null
   } catch {
     return null
@@ -86,10 +104,10 @@ export async function findSessionById($: Shell, id: string): Promise<SessionInfo
  *   - Prefix < 4 chars: treated as "too short" — returns "ambiguous" to force
  *     the caller to be more specific (avoids accidental mass operations).
  */
-export async function findSessionByQuery($: Shell, query: string): Promise<FindQueryResult> {
+export async function findSessionByQuery(_: unknown, query: string): Promise<FindQueryResult> {
   let sessions: SessionInfo[]
   try {
-    sessions = await listSessions($)
+    sessions = await listSessions(null)
   } catch (err: any) {
     return { kind: "error", message: err?.message ?? "failed to list sessions" }
   }
@@ -133,12 +151,12 @@ export function formatAmbiguous(result: { query: string; matches: SessionInfo[] 
  * Returns an empty array on failure.
  */
 export async function searchSessions(
-  $: Shell,
+  _: unknown,
   query: string,
   scope: "title" | "title+note" = "title",
 ): Promise<SessionInfo[]> {
   try {
-    const sessions = await listSessions($)
+    const sessions = await listSessions(null)
     const lower = query.toLowerCase()
     if (scope === "title") {
       return sessions.filter((s) => s.title.toLowerCase().includes(lower))
@@ -164,23 +182,18 @@ export async function searchSessions(
  * Returns the raw stdout (native JSON round-trip format).
  * Returns an empty string on failure.
  *
- * Implementation notes:
- *   - Streamed to a temp file instead of capturing stdout into a string —
- *     Bun's pipe capture truncates at ~200 KB, which corrupts large sessions
- *     (multi-MB) -> "Unterminated string" in parseJson.
- *   - `2>/dev/null` suppresses the CLI's stderr progress line
- *     ("Exporting session: …") which would otherwise leak to the user's
- *     terminal (Bun Shell inherits stderr).
+ * execFile captures stdout fully (no pipe truncation, maxBuffer 64 MB) and
+ * never inherits the CLI's stderr progress line ("Exporting session: …").
  */
-export async function exportSession($: Shell, id: string): Promise<string> {
-  const tmp = `${tmpdir()}/sm-export-${id}-${Date.now()}.json`
+export async function exportSession(_: unknown, id: string): Promise<string> {
   try {
-    await $`opencode export ${id} > ${tmp} 2>/dev/null`
-    return readFileSync(tmp, "utf-8")
+    const { stdout } = await execFile("opencode", ["export", id], {
+      maxBuffer: MAX_BUFFER,
+      timeout: CLI_TIMEOUT_MS,
+    })
+    return stdout
   } catch {
     return ""
-  } finally {
-    try { unlinkSync(tmp) } catch {}
   }
 }
 
@@ -189,9 +202,11 @@ export async function exportSession($: Shell, id: string): Promise<string> {
  * Returns `true` when the command exits successfully.
  * Invalidates the session-list cache (a new session appeared in the DB).
  */
-export async function importSession($: Shell, filePath: string): Promise<boolean> {
+export async function importSession(_: unknown, filePath: string): Promise<boolean> {
   try {
-    await $`opencode import ${filePath} 2>/dev/null`
+    await execFile("opencode", ["import", filePath], {
+      maxBuffer: MAX_BUFFER, timeout: CLI_TIMEOUT_MS,
+    })
     invalidateSessionCache()
     return true
   } catch {
@@ -204,9 +219,11 @@ export async function importSession($: Shell, filePath: string): Promise<boolean
  * Returns `true` when the command exits successfully.
  * Invalidates the session-list cache (a session disappeared from the DB).
  */
-export async function deleteSession($: Shell, id: string): Promise<boolean> {
+export async function deleteSession(_: unknown, id: string): Promise<boolean> {
   try {
-    await $`opencode session delete ${id} 2>/dev/null`
+    await execFile("opencode", ["session", "delete", id], {
+      maxBuffer: MAX_BUFFER, timeout: CLI_TIMEOUT_MS,
+    })
     invalidateSessionCache()
     return true
   } catch {

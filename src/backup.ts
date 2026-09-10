@@ -507,6 +507,13 @@ export async function restoreMissingPinned(
   for (const p of state.pinned) {
     if (aliveIds.has(p.sessionId)) continue
 
+    // Double-check before declaring a session dead: the list endpoint can
+    // miss live sessions (CLI result cap, other project directories).
+    // A point export is not list-limited — it returns data for any existing
+    // session. Skipping this check would create a DUPLICATE on restore.
+    const probe = await exportSession($, p.sessionId)
+    if (probe.trim()) continue
+
     const backupPath = join(backupDir, `${p.sessionId}.json`)
     if (!existsSync(backupPath)) {
       missing.push(p.sessionId)
