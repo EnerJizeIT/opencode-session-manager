@@ -24,7 +24,7 @@
 
 import { execFile as execFileCb } from "child_process"
 import { promisify } from "util"
-import { parseJson, loadStateDefault } from "./state"
+import { parseJson, loadStateDefault, logHookEvent } from "./state"
 import type { SessionInfo, FindQueryResult } from "./types"
 
 const execFile = promisify(execFileCb)
@@ -36,6 +36,30 @@ const MAX_BUFFER = 64 * 1024 * 1024
 const CLI_TIMEOUT_MS = 120_000
 
 /** Bun shell context — kept in call-sites for API stability; unused here. */
+
+// ---------------------------------------------------------------------------
+// Diagnostic logging for listSessions (bug: empty DB — facts before fixes)
+// ---------------------------------------------------------------------------
+
+/** The exact command listSessions runs (quoted in the diagnostic log). */
+const LIST_CMD = "opencode session list --format json -n 100000"
+
+/**
+ * Reduce a stream (stdout/stderr) or message to a single-line tail for the
+ * diagnostic log. Newlines are flattened, length capped, no env values.
+ */
+function tailForLog(value: unknown, max = 500): string {
+  if (value === undefined || value === null) return ""
+  const str = Buffer.isBuffer(value) ? value.toString("utf-8") : String(value)
+  const flat = str.replace(/\s+/g, " ").trim()
+  return flat.length > max ? "…<cut>" + flat.slice(-max) : flat
+}
+
+/** Names (never values) of OPENCODE_* env vars — context without secrets. */
+function openCodeEnvNames(): string {
+  const names = Object.keys(process.env).filter((k) => k.startsWith("OPENCODE_"))
+  return names.length ? names.join(",") : "none"
+}
 
 // ---------------------------------------------------------------------------
 // Session list cache (listSessions is the hottest call — ~2 s per invocation)
@@ -62,8 +86,9 @@ export async function listSessions(_$: unknown): Promise<SessionInfo[]> {
   if (listCache && Date.now() - listCache.ts < LIST_CACHE_TTL_MS) {
     return listCache.sessions
   }
+  const startedAt = Date.now()
   try {
-    const { stdout } = await execFile(
+    const { stdout, stderr } = await execFile(
       "opencode",
       ["session", "list", "--format", "json", "-n", "100000"],
       { maxBuffer: MAX_BUFFER, timeout: CLI_TIMEOUT_MS },
@@ -71,8 +96,27 @@ export async function listSessions(_$: unknown): Promise<SessionInfo[]> {
     const parsed = parseJson(stdout) as SessionInfo[]
     const sessions = Array.isArray(parsed) ? parsed : []
     listCache = { sessions, ts: Date.now() }
+    const ms = Date.now() - startedAt
+    if (sessions.length === 0 || (stderr ?? "").trim().length > 0) {
+      logHookEvent(
+        "listSessions",
+        `OK count=${sessions.length} ms=${ms} cwd=${process.cwd()} stderr=${tailForLog(stderr)}`,
+      )
+    }
     return sessions
   } catch (err: any) {
+    const ms = Date.now() - startedAt
+    logHookEvent(
+      "listSessions",
+      [
+        `ERROR code=${err?.code ?? "n/a"} signal=${err?.signal ?? "n/a"} killed=${err?.killed ?? false}`,
+        `ms=${ms} cwd=${process.cwd()} cmd=${LIST_CMD}`,
+        `msg=${tailForLog(err?.message, 200)}`,
+        `stderr=${tailForLog(err?.stderr)}`,
+        `stdout=${tailForLog(err?.stdout)}`,
+        `envOPENCODE=${openCodeEnvNames()}`,
+      ].join(" "),
+    )
     return []
   }
 }

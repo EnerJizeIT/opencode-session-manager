@@ -6,3 +6,5 @@ node_modules/
 # Agentic workflow runtime files
 .agentic/
 .tmp-test*
+# Obsidian — временные файлы при правке .md
+*.edtz
