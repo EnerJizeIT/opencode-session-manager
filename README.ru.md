@@ -66,10 +66,10 @@ State-файл `session-manager.json` хранит pinned-список и нас
 Запись атомарная: `.tmp` → `rename`. Бэкапы в `backups/<id>.json`.
 Всё лежит вне БД opencode — переживёт переустановку.
 
-### CLI-first
+### Чтение БД + запись через CLI
 
-Все операции с сессиями идут через `opencode` CLI (Bun shell `$`), не через прямой SQL.
-Write-SQL запрещён. `parseJson` терпит `[page-assist]`-шум в stdout.
+Список сессий — прямое readonly-чтение из базы opencode (`bun:sqlite`), все проекты сразу: `opencode session list` отдаёт только сессии текущего каталога, и плагин терял остальные.
+Export/import/delete — через `opencode` CLI. Write-SQL запрещён. `parseJson` терпит `[page-assist]`-шум в stdout.
 
 ### Backup envelope
 

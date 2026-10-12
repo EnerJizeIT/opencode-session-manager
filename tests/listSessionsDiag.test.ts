@@ -1,15 +1,19 @@
 import { afterEach, afterAll, describe, expect, it, mock } from "bun:test"
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs"
+import { mkdtempSync, rmSync } from "fs"
+import { Database } from "bun:sqlite"
 
 /**
- * TODO-0011 regression: the listSessions diagnostics must not change the
- * return contract (CLI failure -> [], success -> sessions) and must write
- * one fact line per call on both paths.
+ * TODO-0012 regression: listSessions reads the opencode DB directly
+ * (bun:sqlite, readonly) — the project-scoped CLI source is gone. The
+ * diagnostics contract survives the switch: one ERROR fact line per failed
+ * read, one OK line for an empty table, and the return contract is
+ * unchanged (failure -> [], success -> mapped sessions).
  *
  * logHookEvent is mocked so the test never touches the user's real
  * session-manager-hooks.log (bun's os.homedir() ignores $HOME, so env
- * redirection is not an option). The child "opencode" is replaced by a
- * PATH shim / empty PATH — no real CLI call, no DB touch.
+ * redirection is not an option). The DB is a throwaway temp file created
+ * with the same `session` table shape — the user's opencode.db is never
+ * opened, no CLI is called.
  */
 const captured: string[] = []
 const realState = await import("../src/state")
@@ -19,50 +23,86 @@ mock.module("../src/state", () => ({
     captured.push(`${hook}  ${detail}`)
   },
 }))
-const { listSessions, invalidateSessionCache } = await import("../src/cli")
+const { listSessions, invalidateSessionCache, setSessionDbPath } = await import("../src/cli")
 
-const TMP = mkdtempSync("/tmp/opencode/sm-diag-")
+const TMP = mkdtempSync("/tmp/opencode/sm-db-")
 afterAll(() => rmSync(TMP, { recursive: true, force: true }))
 afterEach(() => {
   captured.length = 0
+  setSessionDbPath(null)
   invalidateSessionCache()
 })
 
-describe("listSessions diagnostics (TODO-0011)", () => {
-  it("CLI failure: returns [] and logs exactly one ERROR fact line", async () => {
-    const emptyBin = `${TMP}/empty-bin`
-    mkdirSync(emptyBin, { recursive: true })
-    const realPath = process.env.PATH
-    process.env.PATH = emptyBin // no "opencode" on PATH -> ENOENT
-    try {
-      const sessions = await listSessions(null)
-      expect(sessions).toEqual([])
-    } finally {
-      process.env.PATH = realPath
-    }
-    expect(captured.filter((l) => l.includes("ERROR code=ENOENT")).length).toBe(1)
-    const line = captured.find((l) => l.includes("ERROR code=ENOENT"))
-    expect(line).toContain("cmd=opencode session list --format json -n 100000")
-    expect(line).toContain("cwd=")
+/** Create a throwaway DB with the `session` table shape (6 display columns). */
+function makeDb(
+  path: string,
+  rows: Array<[string, string, number, number, string, string]>,
+): void {
+  const db = new Database(path)
+  db.run(
+    "CREATE TABLE session (id TEXT, project_id TEXT, directory TEXT, title TEXT, time_created INTEGER, time_updated INTEGER)",
+  )
+  const ins = db.query(
+    "INSERT INTO session (id, title, time_created, time_updated, project_id, directory) VALUES (?, ?, ?, ?, ?, ?)",
+  )
+  for (const [id, title, created, updated, projectId, directory] of rows) {
+    ins.run(id, title, created, updated, projectId, directory)
+  }
+  db.close()
+}
+
+describe("listSessions DB source (TODO-0012)", () => {
+  it("maps DB rows to SessionInfo, newest first, all six fields", async () => {
+    const dbPath = `${TMP}/map.db`
+    makeDb(dbPath, [
+      ["ses_old", "Old", 100, 100, "p1", "/a"],
+      ["ses_new", "New", 200, 300, "p2", "/b"],
+    ])
+    setSessionDbPath(dbPath)
+    const sessions = await listSessions(null)
+    expect(sessions.map((s) => s.id)).toEqual(["ses_new", "ses_old"])
+    expect(sessions[0]).toEqual({
+      id: "ses_new",
+      title: "New",
+      created: 200,
+      updated: 300,
+      projectId: "p2",
+      directory: "/b",
+    })
   })
 
-  it("success with stderr noise: returns sessions and logs OK count", async () => {
-    const bin = `${TMP}/bin`
-    mkdirSync(bin, { recursive: true })
-    const shim = `${bin}/opencode`
-    writeFileSync(
-      shim,
-      "#!/bin/sh\necho \"[page-assist] CLI mode - skipping WS server\" >&2\necho '[{\"id\":\"ses_test1\",\"title\":\"T1\"},{\"id\":\"ses_test2\",\"title\":\"T2\"}]'\n",
-    )
-    chmodSync(shim, 0o755)
-    const realPath = process.env.PATH
-    process.env.PATH = `${bin}:${realPath}`
-    try {
-      const sessions = await listSessions(null)
-      expect(sessions.map((s) => s.id)).toEqual(["ses_test1", "ses_test2"])
-    } finally {
-      process.env.PATH = realPath
-    }
-    expect(captured.filter((l) => l.includes("OK count=2")).length).toBe(1)
+  it("missing DB: returns [] and logs exactly one ERROR fact line", async () => {
+    const dbPath = `${TMP}/nope.db`
+    setSessionDbPath(dbPath)
+    const sessions = await listSessions(null)
+    expect(sessions).toEqual([])
+    const errors = captured.filter((l) => l.includes("ERROR"))
+    expect(errors.length).toBe(1)
+    expect(errors[0]).toContain(`db=${dbPath}`)
+    expect(errors[0]).toContain("DB not found")
+    expect(errors[0]).toContain("ms=")
+  })
+
+  it("empty table: returns [] and logs exactly one OK fact line", async () => {
+    const dbPath = `${TMP}/empty.db`
+    makeDb(dbPath, [])
+    setSessionDbPath(dbPath)
+    const sessions = await listSessions(null)
+    expect(sessions).toEqual([])
+    const oks = captured.filter((l) => l.includes("OK count=0"))
+    expect(oks.length).toBe(1)
+    expect(oks[0]).toContain(`db=${dbPath}`)
+  })
+
+  it("non-empty read: logs nothing (no stderr to report anymore)", async () => {
+    const dbPath = `${TMP}/two.db`
+    makeDb(dbPath, [
+      ["ses_x", "X", 1, 1, "global", "/h"],
+      ["ses_y", "Y", 2, 2, "global", "/h"],
+    ])
+    setSessionDbPath(dbPath)
+    const sessions = await listSessions(null)
+    expect(sessions.length).toBe(2)
+    expect(captured).toEqual([])
   })
 })

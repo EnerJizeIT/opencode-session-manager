@@ -21,6 +21,7 @@
 import { execFile as execFileCb } from "child_process"
 import { promisify } from "util"
 import { listSessions, invalidateSessionCache } from "../src/cli"
+import { parseJson } from "../src/state"
 
 const execFile = promisify(execFileCb)
 
@@ -63,12 +64,17 @@ try {
     maxBuffer: MAX_BUFFER,
     timeout: CAP_MS,
   })
+  let rawCount: number | null = null
+  try {
+    rawCount = (parseJson(r.stdout) as unknown[]).length
+  } catch { /* unparseable — count stays null */ }
   raw = {
     ok: true,
     code: 0,
     signal: null,
     killed: false,
     ms: Date.now() - rawT0,
+    count: rawCount,
     stdoutLen: r.stdout.length,
     stdoutTail: tail(r.stdout),
     stderr: tail(r.stderr),

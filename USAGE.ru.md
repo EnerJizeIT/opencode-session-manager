@@ -77,7 +77,7 @@ opencode import ~/.local/share/opencode/backups/ses_xxx.json
 opencode -s ses_xxx
 ```
 
-Другие полезные команды: `opencode session list` (все сессии + ID), `opencode -s <id>` (возобновить), `opencode export <id>` (ручной экспорт).
+Другие полезные команды: `opencode session list` (сессии текущего каталога + ID), `opencode -s <id>` (возобновить), `opencode export <id>` (ручной экспорт).
 
 ## Где что лежит
 

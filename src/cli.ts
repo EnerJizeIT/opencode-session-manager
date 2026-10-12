@@ -1,9 +1,21 @@
 /**
- * Wrappers around the `opencode` CLI for session discovery and manipulation.
+ * Session discovery + CLI wrappers for export/import/delete.
  *
  * Each wrapper returns a normalised type. Errors are swallowed and surfaced
- * as empty results — callers can distinguish "no sessions" from "CLI broken"
+ * as empty results — callers can distinguish "no sessions" from "DB broken"
  * via `findSessionByQuery`, which returns a typed error result.
+ *
+ * Session listing (TODO-0012): `listSessions` reads the opencode database
+ * directly (`bun:sqlite`, readonly) instead of `opencode session list`.
+ * The CLI scopes its list to the current project directory — from a
+ * project the plugin went blind to every other project's sessions (pinned
+ * ones included) and mislabelled them [DELETED]. A readonly select of six
+ * columns is project-independent, takes milliseconds, and has no
+ * subprocess that can die inside a live opencode.
+ *
+ * Export / import / delete still go through the CLI: `opencode export <id>`
+ * works for any session regardless of cwd (verified in the TODO-0012
+ * investigation), so the backup/restore path stays untouched.
  *
  * Process invocation — node:child_process.execFile, NOT Bun Shell:
  *   - Bun Shell inherits subprocess stdout/stderr onto the parent terminal,
@@ -18,13 +30,17 @@
  *     so multi-MB session exports don't truncate (the reason a pipe-capture
  *     fix was needed for Bun.spawn in v1.0.2).
  *
- * Performance: `opencode session list` costs ~2 s on a large DB.
+ * Performance: the DB select over ~10k rows takes milliseconds.
  * `listSessions` caches the result for 5 s; delete/import invalidate it.
  */
 
-import { execFile as execFileCb } from "child_process"
+import { execFile as execFileCb, spawn } from "child_process"
 import { promisify } from "util"
-import { parseJson, loadStateDefault, logHookEvent } from "./state"
+import { existsSync, openSync, closeSync, readFileSync, unlinkSync } from "fs"
+import { homedir, tmpdir } from "os"
+import { join } from "path"
+import { Database } from "bun:sqlite"
+import { loadStateDefault, logHookEvent } from "./state"
 import type { SessionInfo, FindQueryResult } from "./types"
 
 const execFile = promisify(execFileCb)
@@ -41,9 +57,6 @@ const CLI_TIMEOUT_MS = 120_000
 // Diagnostic logging for listSessions (bug: empty DB — facts before fixes)
 // ---------------------------------------------------------------------------
 
-/** The exact command listSessions runs (quoted in the diagnostic log). */
-const LIST_CMD = "opencode session list --format json -n 100000"
-
 /**
  * Reduce a stream (stdout/stderr) or message to a single-line tail for the
  * diagnostic log. Newlines are flattened, length capped, no env values.
@@ -55,10 +68,53 @@ function tailForLog(value: unknown, max = 500): string {
   return flat.length > max ? "…<cut>" + flat.slice(-max) : flat
 }
 
-/** Names (never values) of OPENCODE_* env vars — context without secrets. */
-function openCodeEnvNames(): string {
-  const names = Object.keys(process.env).filter((k) => k.startsWith("OPENCODE_"))
-  return names.length ? names.join(",") : "none"
+// ---------------------------------------------------------------------------
+// Session list: direct DB read (project-independent)
+// ---------------------------------------------------------------------------
+
+/** Default opencode database location. */
+export const OPENCODE_DB = join(homedir(), ".local", "share", "opencode", "opencode.db")
+
+/** Test seam: point listSessions at a different DB; null restores the default. */
+let dbPathOverride: string | null = null
+export function setSessionDbPath(path: string | null): void {
+  dbPathOverride = path
+}
+
+/**
+ * Read every session from the `session` table — six display columns only
+ * (never message/part, the DB is multi-GB). Opens the DB readonly and
+ * always closes it. Throws on any failure; the caller decides what to do.
+ */
+export function readAllSessions(dbPath: string): SessionInfo[] {
+  if (!existsSync(dbPath)) {
+    throw new Error(`DB not found: ${dbPath}`)
+  }
+  const db = new Database(dbPath, { readonly: true })
+  try {
+    const rows = db
+      .query(
+        "SELECT id, title, time_created, time_updated, project_id, directory FROM session ORDER BY time_updated DESC",
+      )
+      .all() as Array<{
+      id: string
+      title: string | null
+      time_created: number | null
+      time_updated: number | null
+      project_id: string | null
+      directory: string | null
+    }>
+    return rows.map((r) => ({
+      id: r.id,
+      title: r.title ?? "",
+      created: Number(r.time_created) || 0,
+      updated: Number(r.time_updated) || 0,
+      projectId: r.project_id ?? "",
+      directory: r.directory ?? "",
+    }))
+  } finally {
+    db.close()
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -74,48 +130,34 @@ export function invalidateSessionCache(): void {
 }
 
 /**
- * List all sessions via `opencode session list --format json`.
+ * List all sessions from the opencode DB (project-independent — TODO-0012).
  * Cached for 5 seconds — repeated calls within the TTL return instantly.
  * Returns an empty array on failure.
  *
- * `-n 100000`: the CLI defaults to the 100 most recent sessions, which made
- * the plugin blind to older (often pinned) sessions and mislabel them as
- * deleted. A large limit asks for everything the CLI can see.
+ * The source is a readonly `bun:sqlite` select, not the CLI:
+ * `opencode session list` scopes results to the current project directory,
+ * which made the plugin blind to sessions from other projects (pinned ones
+ * included) and mislabel them as deleted.
  */
 export async function listSessions(_$: unknown): Promise<SessionInfo[]> {
   if (listCache && Date.now() - listCache.ts < LIST_CACHE_TTL_MS) {
     return listCache.sessions
   }
+  const dbPath = dbPathOverride ?? OPENCODE_DB
   const startedAt = Date.now()
   try {
-    const { stdout, stderr } = await execFile(
-      "opencode",
-      ["session", "list", "--format", "json", "-n", "100000"],
-      { maxBuffer: MAX_BUFFER, timeout: CLI_TIMEOUT_MS },
-    )
-    const parsed = parseJson(stdout) as SessionInfo[]
-    const sessions = Array.isArray(parsed) ? parsed : []
-    listCache = { sessions, ts: Date.now() }
+    const sessions = readAllSessions(dbPath)
     const ms = Date.now() - startedAt
-    if (sessions.length === 0 || (stderr ?? "").trim().length > 0) {
-      logHookEvent(
-        "listSessions",
-        `OK count=${sessions.length} ms=${ms} cwd=${process.cwd()} stderr=${tailForLog(stderr)}`,
-      )
+    if (sessions.length === 0) {
+      logHookEvent("listSessions", `OK count=0 ms=${ms} db=${dbPath}`)
     }
+    listCache = { sessions, ts: Date.now() }
     return sessions
   } catch (err: any) {
     const ms = Date.now() - startedAt
     logHookEvent(
       "listSessions",
-      [
-        `ERROR code=${err?.code ?? "n/a"} signal=${err?.signal ?? "n/a"} killed=${err?.killed ?? false}`,
-        `ms=${ms} cwd=${process.cwd()} cmd=${LIST_CMD}`,
-        `msg=${tailForLog(err?.message, 200)}`,
-        `stderr=${tailForLog(err?.stderr)}`,
-        `stdout=${tailForLog(err?.stdout)}`,
-        `envOPENCODE=${openCodeEnvNames()}`,
-      ].join(" "),
+      `ERROR db=${dbPath} ms=${ms} msg=${tailForLog(err?.message, 200)}`,
     )
     return []
   }
@@ -226,18 +268,63 @@ export async function searchSessions(
  * Returns the raw stdout (native JSON round-trip format).
  * Returns an empty string on failure.
  *
- * execFile captures stdout fully (no pipe truncation, maxBuffer 64 MB) and
- * never inherits the CLI's stderr progress line ("Exporting session: …").
+ * The export's stdout is redirected to a temp file, not a pipe (TODO-0012):
+ * opencode 1.19.0's `export` truncates its output when stdout is a pipe —
+ * the same session gives a complete 7.7 MB JSON to a file, but a
+ * nondeterministic 131–438 KB cut with exit 0 through any pipe (bun/node
+ * execFile, shell `|` — verified in the TODO-0012 investigation). A
+ * regular-file fd is immune; the child writes the full document. The small
+ * outputs of import/delete keep the pipe: they never reach the window where
+ * the truncation race bites. stderr is discarded (the old execFile call
+ * captured it but never used it).
  */
+/**
+ * Unique temp path for one export capture. The random suffix matters:
+ * parallel exports of the SAME session id (concurrent sm_backup calls)
+ * would otherwise land on the same pid+ms path and write into one file.
+ */
+export function exportTempPath(id: string): string {
+  const rand = Math.random().toString(36).slice(2, 10)
+  return join(tmpdir(), `sm-export-${process.pid}-${Date.now()}-${rand}-${id}.json`)
+}
+
 export async function exportSession(_: unknown, id: string): Promise<string> {
+  const tmpFile = exportTempPath(id)
   try {
-    const { stdout } = await execFile("opencode", ["export", id], {
-      maxBuffer: MAX_BUFFER,
-      timeout: CLI_TIMEOUT_MS,
-    })
-    return stdout
+    const outFd = openSync(tmpFile, "w")
+    try {
+      await new Promise<void>((resolve, reject) => {
+        // stdout -> temp file (pipe truncation, see above); stderr ->
+        // discarded (the old execFile call captured it but never used it;
+        // "ignore" also keeps the child from blocking on a full stderr pipe).
+        const stdio: ["ignore", number, "ignore"] = ["ignore", outFd, "ignore"]
+        // The narrowed surface: both bun-types and @types/node declare
+        // "child_process", so the merged spawn overloads reduce to `never` —
+        // declare exactly the events exportSession listens to.
+        const child = spawn("opencode", ["export", id], {
+          stdio,
+          timeout: CLI_TIMEOUT_MS,
+        }) as unknown as {
+          on(event: "error", listener: (err: Error) => void): unknown
+          on(event: "close", listener: (code: number | null) => void): unknown
+        }
+        child.on("error", reject)
+        child.on("close", (code) =>
+          code === 0 ? resolve() : reject(new Error(`opencode export exited with code ${code}`)),
+        )
+      })
+      return readFileSync(tmpFile, "utf-8")
+    } finally {
+      try {
+        closeSync(outFd)
+      } catch { /* best-effort */ }
+    }
   } catch {
     return ""
+  } finally {
+    try {
+      unlinkSync(tmpFile)
+    } catch { /* best-effort */ }
   }
 }
 

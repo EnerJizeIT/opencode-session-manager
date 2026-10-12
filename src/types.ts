@@ -5,7 +5,7 @@
  * can import the contracts without pulling in implementation code.
  */
 
-/** Session info returned by `opencode session list --format json`. */
+/** Session info from the opencode DB `session` table (six display columns — TODO-0012). */
 export interface SessionInfo {
   id: string
   title: string

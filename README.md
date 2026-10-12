@@ -67,7 +67,7 @@ See [USAGE.md](https://github.com/EnerJizeIT/opencode-session-manager/blob/maste
 
 ## Architecture
 
-- **CLI-first** — all session operations go through `opencode` CLI, not direct SQL.
+- **DB read + CLI write** — the session list is a direct readonly read of the opencode database (all projects; `opencode session list` only sees the current directory); export/import/delete go through the `opencode` CLI. No write-SQL.
 - **Backup-then-delete** — sessions are only removed after a successful backup.
 - **Backup envelope** — format: `{version, exportedAt, backupOf, session}`; formalized in `backup-schema.json`.
 - **Protected backups** — pinned and orphaned backups (session no longer in DB) are protected forever.

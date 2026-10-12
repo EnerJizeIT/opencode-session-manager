@@ -77,7 +77,7 @@ opencode import ~/.local/share/opencode/backups/ses_xxx.json
 opencode -s ses_xxx
 ```
 
-Other handy shell commands: `opencode session list` (all sessions + IDs), `opencode -s <id>` (resume), `opencode export <id>` (manual export).
+Other handy shell commands: `opencode session list` (sessions of the current directory + IDs), `opencode -s <id>` (resume), `opencode export <id>` (manual export).
 
 ## Where things live
 
