@@ -6,7 +6,6 @@
  * `dryRun` flag so the manual tools can default to safe preview behaviour.
  */
 
-import type { PluginInput } from "@opencode-ai/plugin"
 import {
   existsSync, readFileSync, writeFileSync, mkdirSync, renameSync, readdirSync,
   unlinkSync, copyFileSync, statSync,
@@ -25,8 +24,10 @@ import {
   invalidateSessionCache,
 } from "./cli"
 
-/** Bun shell context bound to the plugin runtime. */
-type Shell = PluginInput["$"]
+/** Shell handle kept in signatures for API stability. V1 passed the Bun `$`
+ *  helper, V2 has no shell at all; no call site invokes it (all subprocesses
+ *  go through node:child_process in src/cli.ts). */
+type Shell = unknown
 
 /** Max sessions processed per cleanup run — prevents minute-long subprocess
  *  storms when the DB has hundreds of stale sessions (stability audit). */
