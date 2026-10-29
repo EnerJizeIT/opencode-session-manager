@@ -85,6 +85,18 @@ Other handy shell commands: `opencode session list` (sessions of the current dir
 - Backups: `~/.local/share/opencode/backups/`
 - Stored outside opencode's DB → survives a reinstall.
 
+## Both opencode versions
+
+One package, two plugin APIs:
+
+- **opencode 1.18.29+** loads `server()` — the classic tool map and hooks.
+- **opencode 2.x** loads `setup(ctx)` — the same tools registered through
+  `ctx.tool.transform`, the same session hook through `ctx.tool.hook`.
+
+Connection is unchanged on 1.x (`plugin[]` in `opencode.json`). On 2.x the key
+is `plugins[]`; the package name goes there as-is, and 2.x also discovers local
+plugin directories under `.opencode/plugins/`.
+
 ## All tools (reference)
 
 | Tool | What it does |

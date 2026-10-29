@@ -25,6 +25,19 @@ Lost an important AI chat? Can't find that session from last week? Sessions pili
 - 🔍 **Search** — find sessions by title substring.
 - ⚙️ **Configure** — cleanup / retention settings; set once and forget.
 
+## OpenCode versions
+
+The package supports both the 1.x and the 2.x plugin APIs from one build:
+
+| opencode | API | What loads |
+|---|---|---|
+| 1.18.29 and newer (1.x) | V1 | `server()` from the default export — tools and the `tool.execute.before` hook |
+| 2.x | V2 | `id` + `setup(ctx)` from the default export — tools registered through `ctx.tool.transform` and the hook through `ctx.tool.hook("execute.before", ...)` |
+
+Tool names, descriptions, arguments and behaviour are identical in both. No
+separate package version is needed, and no configuration differs: the same
+entry in `plugin[]` (`opencode.json`) or `plugins[]` (`opencode 2`) works.
+
 ## Installation
 
 Add the scoped package to your `opencode.json` plugin array — opencode will install it from npm automatically:
