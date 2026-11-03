@@ -17,6 +17,12 @@ export interface SMState {
     backupDir: string
     /** Re-pin backups fresher than this many days during auto-maintenance (Pinned Guarantee). */
     pinnedBackupRefreshDays: number
+    /** Minimum gap between auto-maintenance runs, minutes (the check runs on tool activity). */
+    maintenanceIntervalMinutes: number
+    /** Max sessions cleaned per maintenance run; 0 = no limit (clean everything eligible). */
+    cleanupBatchSize: number
+    /** Keep backups of deleted (no longer in DB) sessions this many days; 0 = forever. */
+    orphanBackupRetentionDays: number
   }
   pinned: Array<{ sessionId: string; title: string; pinnedAt: number; note: string }>
   lastAutoRun?: number | null
@@ -51,6 +57,9 @@ export const DEFAULT_STATE: SMState = {
     backupRetentionDays: 30,
     backupDir: DEFAULT_BACKUP_DIR,
     pinnedBackupRefreshDays: 7,
+    maintenanceIntervalMinutes: 60,
+    cleanupBatchSize: 50,
+    orphanBackupRetentionDays: 30,
   },
   pinned: [],
   lastAutoRun: null,

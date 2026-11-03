@@ -5,17 +5,21 @@
  * as empty results — callers can distinguish "no sessions" from "DB broken"
  * via `findSessionByQuery`, which returns a typed error result.
  *
- * Session listing (TODO-0012): `listSessions` reads the opencode database
- * directly (`bun:sqlite`, readonly) instead of `opencode session list`.
- * The CLI scopes its list to the current project directory — from a
- * project the plugin went blind to every other project's sessions (pinned
- * ones included) and mislabelled them [DELETED]. A readonly select of six
- * columns is project-independent, takes milliseconds, and has no
- * subprocess that can die inside a live opencode.
+ * Session listing: `listSessions` reads the opencode database directly
+ * (`bun:sqlite`, readonly) instead of `opencode session list` — the CLI
+ * scopes its list to the current project directory (TODO-0012). opencode
+ * 2.x writes new sessions to `session_v2` and that table is the source of
+ * truth; the legacy `session` table is a migration remnant the 2.x CLI
+ * cannot export or delete (verified 03.11: `session export` says "not
+ * found", `session delete` leaves the row), so surfacing it would create
+ * phantom sessions. In a 1.x environment only `session` exists — we read it.
+ * (Bug of 30.10: only the legacy table was read, so every new session was
+ * invisible — sm_pin said "Session not found" for a session that existed.)
  *
- * Export / import / delete still go through the CLI: `opencode export <id>`
- * works for any session regardless of cwd (verified in the TODO-0012
- * investigation), so the backup/restore path stays untouched.
+ * Export / import / delete still go through the CLI. The command layout
+ * differs between versions, so the plugin adapter picks the flavor at load
+ * time (`setCliFlavor`): v1 — `opencode export|import <arg>`, v2 —
+ * `opencode session export|import <arg>`; `session delete` exists in both.
  *
  * Process invocation — node:child_process.execFile, NOT Bun Shell:
  *   - Bun Shell inherits subprocess stdout/stderr onto the parent terminal,
@@ -51,6 +55,47 @@ const MAX_BUFFER = 64 * 1024 * 1024
 /** Kill a hanging CLI call after 2 minutes (network/hung TUI safety). */
 const CLI_TIMEOUT_MS = 120_000
 
+// ---------------------------------------------------------------------------
+// CLI flavor: opencode 1.x keeps export/import at the root, 2.x moved them
+// under `session` (`opencode session export|import`). The plugin-API version
+// is not proof (a V2 runtime still loads a legacy server() plugin), so the
+// CLI binary's own version is the ground truth: probed once per process and
+// cached. The adapter hint (`setCliFlavor`) is only a fallback for a failed
+// probe.
+// ---------------------------------------------------------------------------
+
+export type CliFlavor = "v1" | "v2"
+
+let cliFlavorHint: CliFlavor = "v1"
+
+/** Set by the probe on first CLI use; null until then. */
+let resolvedFlavor: CliFlavor | null = null
+
+/** Adapter hint (V1 runtime "v1", V2 runtime "v2"); also the test seam. */
+export function setCliFlavor(flavor: CliFlavor): void {
+  cliFlavorHint = flavor
+  resolvedFlavor = null
+}
+
+export function getCliFlavor(): CliFlavor {
+  return resolvedFlavor ?? cliFlavorHint
+}
+
+/**
+ * Resolve the installed CLI generation once per process: opencode 2.x moved
+ * export/import under `session`. Falls back to the adapter hint if the probe
+ * fails. Never throws.
+ */
+async function resolveCliFlavor(): Promise<CliFlavor> {
+  if (resolvedFlavor) return resolvedFlavor
+  try {
+    const { stdout } = await execFile("opencode", ["--version"], { timeout: 10_000 })
+    const major = Number.parseInt(String(stdout).match(/(\d+)\./)?.[1] ?? "", 10)
+    if (Number.isFinite(major)) resolvedFlavor = major >= 2 ? "v2" : "v1"
+  } catch { /* keep the hint */ }
+  return resolvedFlavor ?? cliFlavorHint
+}
+
 /** Bun shell context — kept in call-sites for API stability; unused here. */
 
 // ---------------------------------------------------------------------------
@@ -77,44 +122,99 @@ export const OPENCODE_DB = join(homedir(), ".local", "share", "opencode", "openc
 
 /** Test seam: point listSessions at a different DB; null restores the default. */
 let dbPathOverride: string | null = null
+
+/** Last logged schema signature — one line per process/schema change. */
+let lastSchemaSignature: string | null = null
+
 export function setSessionDbPath(path: string | null): void {
   dbPathOverride = path
+  lastSchemaSignature = null
+}
+
+/** Session tables the plugin reads, in preference order (v2 wins on id collisions). */
+const SESSION_TABLES = ["session_v2", "session"] as const
+type SessionTable = (typeof SESSION_TABLES)[number]
+
+/** Columns the plugin needs — never message/part (the DB is multi-GB). */
+const SESSION_COLUMNS = "id, title, time_created, time_updated, project_id, directory"
+
+export interface SessionReadResult {
+  /** Merged sessions, newest first, deduplicated by id. */
+  sessions: SessionInfo[]
+  /** Tables actually read, in preference order. */
+  tables: SessionTable[]
+  /** Row count read per table (before merging). */
+  perTable: Record<string, number>
+}
+
+interface SessionRow {
+  id: string
+  title: string | null
+  time_created: number | null
+  time_updated: number | null
+  project_id: string | null
+  directory: string | null
+}
+
+function readSessionTable(db: Database, table: SessionTable): SessionInfo[] {
+  const rows = db
+    .query(`SELECT ${SESSION_COLUMNS} FROM ${table}`)
+    .all() as SessionRow[]
+  return rows.map((r) => ({
+    id: r.id,
+    title: r.title ?? "",
+    created: Number(r.time_created) || 0,
+    updated: Number(r.time_updated) || 0,
+    projectId: r.project_id ?? "",
+    directory: r.directory ?? "",
+  }))
+}
+
+/** Session tables present in this DB, plus every table name for diagnostics. */
+function probeSessionTables(db: Database): { tables: SessionTable[]; available: string[] } {
+  const available = (
+    db
+      .query("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+      .all() as Array<{ name: string }>
+  ).map((r) => r.name)
+  const present = new Set(available)
+  return { tables: SESSION_TABLES.filter((t) => present.has(t)), available }
 }
 
 /**
- * Read every session from the `session` table — six display columns only
- * (never message/part, the DB is multi-GB). Opens the DB readonly and
- * always closes it. Throws on any failure; the caller decides what to do.
+ * Read sessions from the active table — `session_v2` when present (opencode
+ * 2.x, the source of truth and the table the 2.x CLI manages), otherwise the
+ * legacy `session` (1.x). Six display columns only, newest first. Opens the
+ * DB readonly and always closes it. Throws on any failure — the caller
+ * decides what to do.
  */
-export function readAllSessions(dbPath: string): SessionInfo[] {
+export function readAllSessionsDetailed(dbPath: string): SessionReadResult {
   if (!existsSync(dbPath)) {
     throw new Error(`DB not found: ${dbPath}`)
   }
   const db = new Database(dbPath, { readonly: true })
   try {
-    const rows = db
-      .query(
-        "SELECT id, title, time_created, time_updated, project_id, directory FROM session ORDER BY time_updated DESC",
+    const { tables, available } = probeSessionTables(db)
+    if (tables.length === 0) {
+      throw new Error(
+        `no session table found (have: ${available.slice(0, 40).join(",") || "none"})`,
       )
-      .all() as Array<{
-      id: string
-      title: string | null
-      time_created: number | null
-      time_updated: number | null
-      project_id: string | null
-      directory: string | null
-    }>
-    return rows.map((r) => ({
-      id: r.id,
-      title: r.title ?? "",
-      created: Number(r.time_created) || 0,
-      updated: Number(r.time_updated) || 0,
-      projectId: r.project_id ?? "",
-      directory: r.directory ?? "",
-    }))
+    }
+    // opencode 2.x is the source of truth: its `session_v2` table only. The
+    // legacy `session` table is a migration remnant — the 2.x CLI cannot
+    // export or delete its rows (verified 03.11), so surfacing them would
+    // produce phantom sessions that cleanup could never remove.
+    const table: SessionTable = tables.includes("session_v2") ? "session_v2" : "session"
+    const sessions = readSessionTable(db, table).sort((a, b) => b.updated - a.updated)
+    return { sessions, tables: [table], perTable: { [table]: sessions.length } }
   } finally {
     db.close()
   }
+}
+
+/** Merged session list (back-compat wrapper around readAllSessionsDetailed). */
+export function readAllSessions(dbPath: string): SessionInfo[] {
+  return readAllSessionsDetailed(dbPath).sessions
 }
 
 // ---------------------------------------------------------------------------
@@ -134,10 +234,11 @@ export function invalidateSessionCache(): void {
  * Cached for 5 seconds — repeated calls within the TTL return instantly.
  * Returns an empty array on failure.
  *
- * The source is a readonly `bun:sqlite` select, not the CLI:
- * `opencode session list` scopes results to the current project directory,
- * which made the plugin blind to sessions from other projects (pinned ones
- * included) and mislabel them as deleted.
+ * The source is a readonly `bun:sqlite` select over every known session table
+ * (`session_v2` on opencode 2.x, legacy `session`), merged with the v2 row
+ * preferred on id collisions. The CLI is not used: it scopes results to the
+ * current project directory and made the plugin blind to other projects'
+ * sessions (pinned ones included, mislabelled as deleted).
  */
 export async function listSessions(_$: unknown): Promise<SessionInfo[]> {
   if (listCache && Date.now() - listCache.ts < LIST_CACHE_TTL_MS) {
@@ -146,10 +247,17 @@ export async function listSessions(_$: unknown): Promise<SessionInfo[]> {
   const dbPath = dbPathOverride ?? OPENCODE_DB
   const startedAt = Date.now()
   try {
-    const sessions = readAllSessions(dbPath)
+    const { sessions, tables } = readAllSessionsDetailed(dbPath)
     const ms = Date.now() - startedAt
+    const signature = tables.join("+")
+    const schemaChanged = signature !== lastSchemaSignature
+    lastSchemaSignature = signature
     if (sessions.length === 0) {
-      logHookEvent("listSessions", `OK count=0 ms=${ms} db=${dbPath}`)
+      logHookEvent("listSessions", `OK count=0 ms=${ms} db=${dbPath} tables=${signature}`)
+    } else if (schemaChanged) {
+      // One line per process/schema change: a renamed or dropped table shows
+      // up in the hooks log without an investigation (the 2.x bug hid here).
+      logHookEvent("listSessions", `schema tables=${signature} count=${sessions.length}`)
     }
     listCache = { sessions, ts: Date.now() }
     return sessions
@@ -264,7 +372,8 @@ export async function searchSessions(
 // ---------------------------------------------------------------------------
 
 /**
- * Export a session via `opencode export <id>`.
+ * Export a session via `opencode export <id>` (v1) or
+ * `opencode session export <id>` (v2, see `cliFlavor`).
  * Returns the raw stdout (native JSON round-trip format).
  * Returns an empty string on failure.
  *
@@ -289,6 +398,7 @@ export function exportTempPath(id: string): string {
 }
 
 export async function exportSession(_: unknown, id: string): Promise<string> {
+  const flavor = await resolveCliFlavor()
   const tmpFile = exportTempPath(id)
   try {
     const outFd = openSync(tmpFile, "w")
@@ -301,7 +411,8 @@ export async function exportSession(_: unknown, id: string): Promise<string> {
         // The narrowed surface: both bun-types and @types/node declare
         // "child_process", so the merged spawn overloads reduce to `never` —
         // declare exactly the events exportSession listens to.
-        const child = spawn("opencode", ["export", id], {
+        const args = flavor === "v2" ? ["session", "export", id] : ["export", id]
+        const child = spawn("opencode", args, {
           stdio,
           timeout: CLI_TIMEOUT_MS,
         }) as unknown as {
@@ -310,7 +421,9 @@ export async function exportSession(_: unknown, id: string): Promise<string> {
         }
         child.on("error", reject)
         child.on("close", (code) =>
-          code === 0 ? resolve() : reject(new Error(`opencode export exited with code ${code}`)),
+          code === 0
+            ? resolve()
+            : reject(new Error(`opencode ${args.join(" ")} exited with code ${code}`)),
         )
       })
       return readFileSync(tmpFile, "utf-8")
@@ -329,13 +442,16 @@ export async function exportSession(_: unknown, id: string): Promise<string> {
 }
 
 /**
- * Import a session from a JSON file via `opencode import <file>`.
+ * Import a session from a JSON file via `opencode import <file>` (v1) or
+ * `opencode session import <file>` (v2, see `cliFlavor`).
  * Returns `true` when the command exits successfully.
  * Invalidates the session-list cache (a new session appeared in the DB).
  */
 export async function importSession(_: unknown, filePath: string): Promise<boolean> {
   try {
-    await execFile("opencode", ["import", filePath], {
+    const flavor = await resolveCliFlavor()
+    const args = flavor === "v2" ? ["session", "import", filePath] : ["import", filePath]
+    await execFile("opencode", args, {
       maxBuffer: MAX_BUFFER, timeout: CLI_TIMEOUT_MS,
     })
     invalidateSessionCache()

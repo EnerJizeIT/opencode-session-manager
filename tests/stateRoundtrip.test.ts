@@ -30,6 +30,9 @@ describe("saveState / loadState — round-trip & robustness", () => {
         backupRetentionDays: 30,
         backupDir: "/test/dir",
         pinnedBackupRefreshDays: 7,
+        maintenanceIntervalMinutes: 60,
+        cleanupBatchSize: 50,
+        orphanBackupRetentionDays: 30,
       },
       pinned: [
         { sessionId: "abc", title: "Test Session", pinnedAt: 1234567890, note: "test" },

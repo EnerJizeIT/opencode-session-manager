@@ -55,7 +55,7 @@ import {
 } from "./src/state"
 import {
   listSessions, findSessionById, findSessionByQuery, formatAmbiguous,
-  searchSessions,
+  searchSessions, setCliFlavor,
 } from "./src/cli"
 import {
   backupOne, runCleanup, runBackupRetention, hasBackupFiles, listBackups,
@@ -63,9 +63,8 @@ import {
 } from "./src/backup"
 import { findPluginSourcePath, formatDate } from "./src/format"
 
-/** Debounce window for auto-maintenance triggered from tool.execute.before.
- *  Replaces the non-working `session.idle` hook (1 hour, same intent). */
-const AUTO_MAINTENANCE_INTERVAL_MS = 3600000
+/** Default gap between auto-maintenance runs (minutes) when the setting is absent. */
+const DEFAULT_MAINTENANCE_INTERVAL_MINUTES = 60
 
 /** Stable plugin id — V2 scopes plugin storage and diagnostics by it. */
 const PLUGIN_ID = "session-manager"
@@ -76,7 +75,8 @@ const PLUGIN_ID = "session-manager"
  * calling tool.
  *
  * Replaces the dead `session.idle` hook (SDK 1.3.0 does not fire it).
- * Triggered instead from `tool.execute.before` with a 1-hour debounce.
+ * Triggered instead from `tool.execute.before` with a debounce: the minimum
+ * gap comes from `settings.maintenanceIntervalMinutes` (default 60).
  * Guarded by a lock file — concurrent runs (multiple tool calls / opencode
  * instances) are skipped.
  */
@@ -153,7 +153,10 @@ async function runAutoMaintenance(): Promise<void> {
 function maybeAutoMaintenance(): void {
   try {
     const state = loadStateDefault()
-    const due = !state.lastAutoRun || Date.now() - state.lastAutoRun >= AUTO_MAINTENANCE_INTERVAL_MS
+    const minutes =
+      Number(state.settings.maintenanceIntervalMinutes) || DEFAULT_MAINTENANCE_INTERVAL_MINUTES
+    const due =
+      !state.lastAutoRun || Date.now() - state.lastAutoRun >= Math.max(1, minutes) * 60_000
     if (due && (state.settings.autoCleanupEnabled || state.settings.backupRetentionEnabled)) {
       void runAutoMaintenance()
     }
@@ -585,8 +588,11 @@ Or edit ~/.local/share/opencode/session-manager.json manually.
         "──────────────────────────────────────────────",
         `Auto-cleanup enabled:     ${state.settings.autoCleanupEnabled}`,
         `Cleanup after (days):     ${state.settings.autoCleanupDays}`,
+        `Cleanup batch size:       ${state.settings.cleanupBatchSize === 0 ? "unlimited (all eligible per run)" : `${state.settings.cleanupBatchSize} per run`}`,
+        `Maintenance interval:     every ${state.settings.maintenanceIntervalMinutes} min (on tool activity)`,
         `Backup retention enabled: ${state.settings.backupRetentionEnabled}`,
         `Backup retention (days):  ${state.settings.backupRetentionDays}`,
+        `Orphan backup keep:       ${state.settings.orphanBackupRetentionDays === 0 ? "forever" : `${state.settings.orphanBackupRetentionDays} days`}`,
         `Pinned backup refresh:    every ${state.settings.pinnedBackupRefreshDays} days (Pinned Guarantee)`,
         `Backup directory:         ${backupDirDisplay}`,
         `Pinned sessions:          ${state.pinned.length}`,
@@ -602,6 +608,9 @@ Or edit ~/.local/share/opencode/session-manager.json manually.
         "backupRetentionDays",
         "backupDir",
         "pinnedBackupRefreshDays",
+        "maintenanceIntervalMinutes",
+        "cleanupBatchSize",
+        "orphanBackupRetentionDays",
       ]
       if (!allowedKeys.includes(args.key as any)) {
         return `Unknown setting: ${args.key}`
@@ -612,7 +621,12 @@ Or edit ~/.local/share/opencode/session-manager.json manually.
         if (args.value === "true") converted = true
         else if (args.value === "false") converted = false
         else return `Invalid value for ${args.key}: ${args.value}`
-      } else if (args.key.endsWith("Days")) {
+      } else if (args.key === "cleanupBatchSize" || args.key === "orphanBackupRetentionDays") {
+        // 0 is meaningful for both: no per-run limit / keep orphan backups forever.
+        const n = Number(args.value)
+        if (!Number.isFinite(n) || n < 0) return `Invalid value for ${args.key}: ${args.value}`
+        converted = n
+      } else if (args.key.endsWith("Days") || args.key === "maintenanceIntervalMinutes") {
         const n = Number(args.value)
         if (!Number.isFinite(n) || n < 1) return `Invalid value for ${args.key}: ${args.value}`
         converted = n
@@ -762,7 +776,7 @@ const TOOL_SPECS: Record<string, ToolSpec> = {
     shape: {},
   },
   sm_config: {
-    description: "Update a session-manager setting. Supported keys: autoCleanupEnabled, autoCleanupDays, backupRetentionEnabled, backupRetentionDays, backupDir, pinnedBackupRefreshDays.",
+    description: "Update a session-manager setting. Supported keys: autoCleanupEnabled, autoCleanupDays, backupRetentionEnabled, backupRetentionDays, backupDir, pinnedBackupRefreshDays, maintenanceIntervalMinutes, cleanupBatchSize (0 = unlimited), orphanBackupRetentionDays (0 = keep forever).",
     shape: { key: S.string(), value: S.string() },
   },
   sm_cleanup: {
@@ -784,6 +798,8 @@ const TOOL_SPECS: Record<string, ToolSpec> = {
 // ───────────────────────────────────────────────────────────────────────────
 
 export const SessionManagerPlugin: V1Plugin = async () => {
+  // opencode 1.x keeps export/import at the CLI root (the module default).
+  setCliFlavor("v1")
   const core = createCore()
 
   const tools: Record<string, unknown> = {}
@@ -824,7 +840,8 @@ export const SessionManagerPlugin: V1Plugin = async () => {
     // current SDK (verified empirically — see session-manager-hooks.log
     // stays empty after `opencode session delete`). Their responsibilities
     // are covered by:
-    //   - tool.execute.before  → periodic cleanup/retention (1 h debounce)
+    //   - tool.execute.before  → periodic cleanup/retention (interval from
+    //     settings.maintenanceIntervalMinutes, default 60)
     //   - sm_list (scope=pinned) + sm_cleanup_pinned → lazy dead-pin removal
     // If a future SDK release starts firing these hooks, the logic above
     // is idempotent and safe to invoke twice.
@@ -846,6 +863,9 @@ export const SessionManagerPlugin: V1Plugin = async () => {
  * two versions. Execution returns `{ content }` — the V2 tool result shape.
  */
 async function setupV2(ctx: V2Context): Promise<void> {
+  // opencode 2.x moved export/import under `session`; build argv for the v2
+  // layout from now on (see src/cli.ts, cliFlavor).
+  setCliFlavor("v2")
   const core = createCore()
 
   await ctx.tool.transform((editor) => {

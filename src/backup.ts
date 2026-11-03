@@ -31,7 +31,11 @@ type Shell = unknown
 
 /** Max sessions processed per cleanup run — prevents minute-long subprocess
  *  storms when the DB has hundreds of stale sessions (stability audit). */
+/** Fallback per-run cleanup limit when the `cleanupBatchSize` setting is absent (0 = unlimited). */
 const MAX_CLEANUP_BATCH = 50
+
+/** Fallback orphan-backup retention when the setting is absent (days; 0 = keep forever). */
+const DEFAULT_ORPHAN_RETENTION_DAYS = 30
 
 /** Path to the local-dev plugin source (used by full_backup). */
 const LOCAL_PLUGIN_PATH = join(homedir(), ".config", "opencode", "plugins", "session-manager.ts")
@@ -109,8 +113,10 @@ export async function runCleanup(
   const candidates = sessions.filter(
     (s) => !pinnedIds.has(s.id) && s.updated < cutoff,
   )
-  const remaining = Math.max(0, candidates.length - MAX_CLEANUP_BATCH)
-  const batch = candidates.slice(0, MAX_CLEANUP_BATCH)
+  const configured = Number(state.settings.cleanupBatchSize)
+  const batchLimit = Number.isFinite(configured) ? configured : MAX_CLEANUP_BATCH
+  const remaining = batchLimit > 0 ? Math.max(0, candidates.length - batchLimit) : 0
+  const batch = batchLimit > 0 ? candidates.slice(0, batchLimit) : candidates
 
   for (const s of batch) {
     if (dryRun) {
@@ -151,6 +157,9 @@ export async function runBackupRetention(
   }
 
   const cutoff = Date.now() - state.settings.backupRetentionDays * 86400000
+  const orphanDaysRaw = Number(state.settings.orphanBackupRetentionDays)
+  const orphanDays = Number.isFinite(orphanDaysRaw) ? orphanDaysRaw : DEFAULT_ORPHAN_RETENTION_DAYS
+  const orphanCutoff = Date.now() - orphanDays * 86400000
   const sessions = await listSessions($)
   const aliveIds = new Set(sessions.map((s) => s.id))
   const pinnedIds = new Set(state.pinned.map((p) => p.sessionId))
@@ -193,24 +202,31 @@ export async function runBackupRetention(
         continue
       }
 
-      if (!aliveIds.has(envelope.backupOf)) {
+      const alive = aliveIds.has(envelope.backupOf)
+      if (!alive && orphanDays <= 0) {
+        // Orphaned backups (session no longer in the DB) are kept forever only
+        // when the setting explicitly says so (0). Cleanup creates these by
+        // design — protecting them unconditionally grew the dir without bound.
         protectedList.push(file)
         continue
       }
+      const expired = alive
+        ? envelope.exportedAt < cutoff
+        : envelope.exportedAt < orphanCutoff
 
-      if (envelope.exportedAt < cutoff) {
-        if (!dryRun) {
-          try {
-            unlinkSync(filePath)
-            removed.push(file)
-          } catch { /* best effort */ }
-        } else {
-          removed.push(file)
-        }
+      if (!expired) {
+        skippedRecent.push(file)
         continue
       }
 
-      skippedRecent.push(file)
+      if (!dryRun) {
+        try {
+          unlinkSync(filePath)
+          removed.push(file)
+        } catch { /* best effort */ }
+      } else {
+        removed.push(file)
+      }
     }
   } catch {
     // If backup dir doesn't exist, nothing to clean

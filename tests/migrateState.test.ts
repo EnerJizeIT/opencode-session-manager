@@ -33,6 +33,9 @@ describe("migrateState", () => {
         backupRetentionDays: 15,
         backupDir: "/custom/path",
         pinnedBackupRefreshDays: 3,
+        maintenanceIntervalMinutes: 60,
+        cleanupBatchSize: 50,
+        orphanBackupRetentionDays: 30,
       },
       pinned: [{ sessionId: "s1", title: "T", pinnedAt: 100, note: "n" }],
       lastAutoRun: 200,
@@ -61,6 +64,9 @@ describe("migrateState", () => {
     expect(result.settings.backupRetentionEnabled).toBe(DEFAULT_STATE.settings.backupRetentionEnabled)
     expect(result.settings.backupRetentionDays).toBe(DEFAULT_STATE.settings.backupRetentionDays)
     expect(result.settings.backupDir).toBe(DEFAULT_STATE.settings.backupDir)
+    expect(result.settings.maintenanceIntervalMinutes).toBe(DEFAULT_STATE.settings.maintenanceIntervalMinutes)
+    expect(result.settings.cleanupBatchSize).toBe(DEFAULT_STATE.settings.cleanupBatchSize)
+    expect(result.settings.orphanBackupRetentionDays).toBe(DEFAULT_STATE.settings.orphanBackupRetentionDays)
   })
 
   it("replaces non-array pinned with default empty array", () => {

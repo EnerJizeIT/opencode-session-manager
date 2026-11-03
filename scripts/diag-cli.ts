@@ -8,11 +8,13 @@
  *
  * What it prints:
  *   1. RAW    — the same `execFile("opencode", ["session","list",...])` call
- *               the plugin makes, with a hard 30 s cap: code, signal, killed,
- *               duration, stdout size + tail, stderr tail.
+ *               the plugin no longer makes, with a hard 30 s cap: code,
+ *               signal, killed, duration, stdout size + tail, stderr tail.
  *   2. PLUGIN — `listSessions()` from src/cli.ts (errors are swallowed there,
  *               so expect a count; the error facts land in
  *               ~/.local/share/opencode/session-manager-hooks.log).
+ *   3. SCHEMA — which session tables the DB has and the row count per table
+ *               (`session_v2` on opencode 2.x + legacy `session`).
  *
  * Each subprocess is capped at 30 s (kill) — the harness never hangs.
  * No secrets are printed (env values are never read).
@@ -20,7 +22,9 @@
 
 import { execFile as execFileCb } from "child_process"
 import { promisify } from "util"
-import { listSessions, invalidateSessionCache } from "../src/cli"
+import {
+  listSessions, invalidateSessionCache, readAllSessionsDetailed, OPENCODE_DB,
+} from "../src/cli"
 import { parseJson } from "../src/state"
 
 const execFile = promisify(execFileCb)
@@ -107,5 +111,15 @@ console.log(
       capped: plugin.capped,
     }),
 )
+
+// 3. Schema breakdown — a renamed/dropped table must be visible here.
+let schema: Record<string, unknown>
+try {
+  const detail = readAllSessionsDetailed(OPENCODE_DB)
+  schema = { tables: detail.tables, perTable: detail.perTable, merged: detail.sessions.length }
+} catch (e: any) {
+  schema = { error: tail(e?.message, 200) }
+}
+console.log("SCHEMA " + JSON.stringify(schema))
 
 console.log("HARNESS " + JSON.stringify({ ms: Date.now() - t0, cwd: process.cwd() }))

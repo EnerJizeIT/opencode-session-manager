@@ -50,12 +50,13 @@ You just tell the agent in plain language — it invokes the right tool and figu
 |---|---|
 | "show settings" / "status" | settings + session/backup counts at a glance |
 | "enable auto-cleanup after 30 days" | old non-pinned sessions get backed up then deleted |
-| "rotate old backups" | deletes stale backups; pinned/orphaned always protected |
+| "rotate old backups" | deletes stale backups; pinned always protected, orphans expire per `orphanBackupRetentionDays` |
 
-Once enabled, auto-maintenance runs **hourly** (triggered on the next plugin
-tool call, debounced 1 h) — no manual work. All CLI output is silenced;
-cleanup processes at most **50 sessions per run** (the rest waits for the
-next tick, so nothing hammers your terminal).
+Once enabled, auto-maintenance runs on the next plugin tool call, no more
+often than `maintenanceIntervalMinutes` (default **60** min — there is no
+timer, the check fires on activity). All CLI output is silenced; one run
+cleans up to `cleanupBatchSize` sessions (default **50**, `0` = no limit —
+everything eligible at once).
 
 **Pinned Guarantee:** pinned sessions are never deleted by cleanup, their
 backups are refreshed every `pinnedBackupRefreshDays` (default 7), and if a
@@ -63,7 +64,8 @@ pinned session ever disappears from the DB it is **restored automatically**
 from its backup and logged to `session-manager-hooks.log`.
 
 Settings keys: `autoCleanupEnabled`, `autoCleanupDays`, `backupRetentionEnabled`,
-`backupRetentionDays`, `backupDir`, `pinnedBackupRefreshDays`.
+`backupRetentionDays`, `backupDir`, `pinnedBackupRefreshDays`,
+`maintenanceIntervalMinutes`, `cleanupBatchSize`, `orphanBackupRetentionDays`.
 
 ## Terminal-only (no chat)
 

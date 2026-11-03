@@ -81,8 +81,8 @@ State-файл `session-manager.json` хранит pinned-список и нас
 
 ### Чтение БД + запись через CLI
 
-Список сессий — прямое readonly-чтение из базы opencode (`bun:sqlite`), все проекты сразу: `opencode session list` отдаёт только сессии текущего каталога, и плагин терял остальные.
-Export/import/delete — через `opencode` CLI. Write-SQL запрещён. `parseJson` терпит `[page-assist]`-шум в stdout.
+Список сессий — прямое readonly-чтение из базы opencode (`bun:sqlite`), все проекты сразу: на opencode 2.x читается `session_v2` (legacy-таблица `session` — для 1.x); `opencode session list` отдаёт только сессии текущего каталога, и плагин терял остальные.
+Export/import/delete — через `opencode` CLI (`session export|import` на 2.x). Write-SQL запрещён. `parseJson` терпит `[page-assist]`-шум в stdout.
 
 ### Backup envelope
 
@@ -96,7 +96,7 @@ Export/import/delete — через `opencode` CLI. Write-SQL запрещён. 
 
 ### Protected backups
 
-Pinned-бэкапы и orphaned (сессии уже нет в БД — это единственная копия) защищены навсегда.
+Pinned-бэкапы защищены навсегда; orphaned (сессии уже нет в БД) удаляются через `orphanBackupRetentionDays` (по умолчанию 30 дней; `0` — хранить навсегда).
 Corrupt-файлы переименовываются в `.corrupt`.
 
 ### Хуки

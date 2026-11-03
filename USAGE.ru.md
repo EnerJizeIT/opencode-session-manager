@@ -52,10 +52,11 @@
 | «включи автоочистку через 30 дней» | старые незакреплённые бэкапятся и удаляются |
 | «ротация старых бэкапов» | удаляет устаревшие; pinned/orphaned всегда защищены |
 
-После включения автообслуживание запускается **раз в час** (по следующему
-вызову любого tool плагина, debounce 1 ч) — без ручной работы. Весь вывод CLI
-заглушён; за один прогон чистится не более **50 сессий** (остальные ждут
-следующего прогона — терминал не захламляется).
+После включения автообслуживание запускается по следующему вызову любого tool
+плагина, не чаще `maintenanceIntervalMinutes` (по умолчанию **60** минут —
+таймера нет, проверка идёт по активности). Весь вывод CLI заглушён; за один
+прогон чистится до `cleanupBatchSize` сессий (по умолчанию **50**, `0` — без
+лимита, всё подходящее сразу).
 
 **Pinned Guarantee:** закреплённые сессии никогда не удаляются cleanup'ом, их
 бэкапы обновляются раз в `pinnedBackupRefreshDays` (по умолчанию 7), а если
@@ -63,7 +64,8 @@
 своего бэкапа и логируется в `session-manager-hooks.log`.
 
 Ключи настроек: `autoCleanupEnabled`, `autoCleanupDays`, `backupRetentionEnabled`,
-`backupRetentionDays`, `backupDir`, `pinnedBackupRefreshDays`.
+`backupRetentionDays`, `backupDir`, `pinnedBackupRefreshDays`,
+`maintenanceIntervalMinutes`, `cleanupBatchSize`, `orphanBackupRetentionDays`.
 
 ## Только терминал (без чата)
 

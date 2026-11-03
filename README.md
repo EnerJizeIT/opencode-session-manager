@@ -80,10 +80,10 @@ See [USAGE.md](https://github.com/EnerJizeIT/opencode-session-manager/blob/maste
 
 ## Architecture
 
-- **DB read + CLI write** — the session list is a direct readonly read of the opencode database (all projects; `opencode session list` only sees the current directory); export/import/delete go through the `opencode` CLI. No write-SQL.
+- **DB read + CLI write** — the session list is a direct readonly read of the opencode database (all projects; `opencode session list` only sees the current directory; reads `session_v2` on opencode 2.x and the legacy `session` table on 1.x). export/import/delete go through the `opencode` CLI (`session export|import` on 2.x). No write-SQL.
 - **Backup-then-delete** — sessions are only removed after a successful backup.
 - **Backup envelope** — format: `{version, exportedAt, backupOf, session}`; formalized in `backup-schema.json`.
-- **Protected backups** — pinned and orphaned backups (session no longer in DB) are protected forever.
+- **Protected backups** — pinned backups are protected forever; orphaned backups (session no longer in DB) expire after `orphanBackupRetentionDays` (default 30; 0 = forever).
 - **Hooks** — `session.idle` triggers auto-cleanup and retention (1h debounce); `session.deleted` cleans the pinned list.
 - **Migration** — `version` field in state + `migrateState` for future schema changes.
 
